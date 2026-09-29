@@ -1,0 +1,21 @@
+{
+  "schema_version": 3,
+  "task_id": null,
+  "packet_id": null,
+  "packet_sha256": null,
+  "source_revision": null,
+  "accepted": false,
+  "accepted_at": null,
+  "actual_role": null,
+  "actual_model": null,
+  "actual_session_mode": null,
+  "actual_session_id": null,
+  "session_isolation_verified": false,
+  "session_notes": null,
+  "state_hash_checked": false,
+  "core_hash_checked": false,
+  "skill_hash_checked": false,
+  "evidence_hashes_checked": false,
+  "unresolved_questions": [],
+  "note": "Execution acceptance is not task completion or phase advancement. Match task_id and packet_id, and record the actual host session ID rather than a fabricated UUID. A fresh ID alone does not prove isolated history; document host checks in session_notes. Current mode must not claim isolation. Only the core validates and records this receipt."
+}

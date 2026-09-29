@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "reviewer": null,
+  "reviewed_at": null,
+  "summary": "Record claims, verification procedures, limitations, and dependencies; do not treat a blank template as an approved audit.",
+  "subjects": [],
+  "requirements": "Each subject contains path and sha256. Evidence audits bind at least findings.md, the current protocol, and separate raw evidence (the protocol itself does not count); final reviews bind at least findings.md and the manuscript. List all actual dependencies; the script cannot infer missing dependencies."
+}

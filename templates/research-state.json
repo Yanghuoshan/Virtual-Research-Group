@@ -1,0 +1,20 @@
+{
+  "schema_version": 3,
+  "project_id": "",
+  "question": "",
+  "phase": "scope",
+  "tasks": {},
+  "active_task": null,
+  "history": [],
+  "status": "active",
+  "revision": 0,
+  "mode": "planning",
+  "authorization": {"experiments": false, "external_services": false, "recurring": false, "git_commits": false},
+  "budget": {"max_cost": null, "max_wall_minutes": null, "max_experiments": null},
+  "evaluation": {"primary_measure": null, "baseline": null, "validation_plan": null, "uncertainty_plan": null},
+  "protocol": {"path": null, "sha256": null},
+  "evidence_review": {"status": "unverified", "path": null, "sha256": null},
+  "review": {"status": "pending", "path": null, "sha256": null},
+  "blockers": [],
+  "next_action": "Define the research scope, evidence standards, authorization, and resource constraints."
+}
