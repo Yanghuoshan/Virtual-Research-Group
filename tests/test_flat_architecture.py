@@ -75,6 +75,24 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual(task['role'], 'critic')
         self.assertNotIn('skills', task)
 
+    def test_model_selection_guidance_is_available_without_a_model_registry(self):
+        core = (ROOT / 'SKILL.md').read_text()
+        self.assertIn('references/model-guidance.md', core)
+        self.assertIn('judgment density', core)
+        guidance = (ROOT / 'references/model-guidance.md').read_text()
+        for fragment in ('Match Capability to the Task', 'current', 'No silent substitution',
+                         'Independence Is Not Model Switching', 'Record the actual model'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, guidance)
+        self.initialize()
+        with self.assertRaises(ValueError):
+            TOOL.handoff(ROOT, self.project, 't1', 'Work from evidence', ['research-brief.md'],
+                         model='', outputs=['reports/m1.md'])
+        packet = TOOL.handoff(ROOT, self.project, 't1', 'Work from evidence', ['research-brief.md'],
+                              model='current', outputs=['reports/m1.md'])
+        self.assertEqual(packet['requested_model'], 'current')
+        self.assertNotIn('actual_model', packet)
+
     def test_phase_contract_stays_machine_readable_in_core(self):
         text = (ROOT / 'SKILL.md').read_text()
         for marker in ('<!-- phase-contract:start -->', '<!-- phase-contract:end -->',
