@@ -126,6 +126,25 @@ class FlatArchitectureTests(unittest.TestCase):
         skill = max((p for p in (ROOT / 'skills').glob('*/SKILL.md')), key=lambda p: p.stat().st_size)
         self.assertLess(skill.stat().st_size, 20000, f'Specialist entry too large: {skill.parent.name}')
 
+    def test_reference_documents_are_reachable_not_orphaned(self):
+        documents = [path for path in ROOT.rglob('*.md') if '.git' not in path.parts]
+        texts = {path: path.read_text(encoding='utf-8') for path in documents}
+        references = sorted(path for path in documents if path.parent.name == 'references')
+        self.assertGreaterEqual(len(references), 9)
+        for reference in references:
+            name = reference.relative_to(ROOT).as_posix()
+            sources = [path for path, text in texts.items() if path != reference and reference.name in text]
+            with self.subTest(reference=name):
+                self.assertTrue(sources, f'Orphan reference document, linked from nowhere: {name}')
+
+    def test_assignment_and_receipt_contract_is_linked_from_core(self):
+        core = (ROOT / 'SKILL.md').read_text()
+        self.assertIn('references/assignment-contracts.md', core)
+        contract = (ROOT / 'references/assignment-contracts.md').read_text()
+        for fragment in ('Separate Identities', '`actual_session_id`', 'What a Packet Binds', 'operations.md'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, contract)
+
     def test_skills_are_directly_discoverable(self):
         self.assertTrue(callable(getattr(TOOL, 'discover_skills', None)), 'Direct skill discovery is missing')
         skills = TOOL.discover_skills(ROOT)

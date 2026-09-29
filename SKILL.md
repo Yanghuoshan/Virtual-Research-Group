@@ -24,7 +24,7 @@ Only the core selects hypotheses, phases, skills, roles, models, tool permission
 - **Session:** a host execution resource carrying working history. The core chooses a model and fresh/reuse/current session for an assignment. Context is the information inside a session, not a fourth workflow entity.
 - **Assignment packet:** one request to work on an existing task. Its `packet_id` changes for each attempt; it is not the task ID, session ID, hypothesis ID or experiment run ID.
 
-Session changes do not change task identity. A task can continue across several sessions; compatible related tasks may share an idle session when independence is unnecessary. Accepting a session receipt starts execution, not a new research phase. Completing a task does not complete its phase. Only the core can decide each of these events, independently.
+Session changes do not change task identity. A task can continue across several sessions; compatible related tasks may share an idle session when independence is unnecessary. Accepting a session receipt starts execution, not a new research phase. Completing a task does not complete its phase. Only the core can decide each of these events, independently. Identity boundaries and the assignment/receipt contract are stated in [assignment contracts](references/assignment-contracts.md).
 
 ## Task Lifecycle
 
@@ -37,7 +37,7 @@ Keep `tasks` and append-only decision `history` in `research-state.json`; no ext
 5. **Accept output or retry:** the core reviews a submission against its acceptance criteria. Only then mark it `completed`; reject stale artifacts or inputs. For bounded rework or resolved blockers, move back to `planned` with a reason and issue a new packet under the same task ID. Preserve previous submissions and attempts in history. Reuse old outputs as evidence but assign new output paths.
 6. **Cancel:** the core may cancel unneeded tasks explicitly, retaining reasons and partial artifacts. Completed/cancelled IDs are never overwritten or reopened; create a new task for a new objective. Session termination alone cannot complete or cancel a task.
 
-Helpers implement these explicit core operations, not an autonomous scheduler. Never let specialists call core state-changing commands. The core may plan further work while a task runs, but cannot accept concurrent execution. It separately evaluates the phase's exit criteria and invokes a phase decision when appropriate; no task or session operation advances phase automatically.
+Helpers implement these explicit core operations, not an autonomous scheduler; the assignment and receipt contract they implement is in [assignment contracts](references/assignment-contracts.md). Never let specialists call core state-changing commands. The core may plan further work while a task runs, but cannot accept concurrent execution. It separately evaluates the phase's exit criteria and invokes a phase decision when appropriate; no task or session operation advances phase automatically.
 
 ## Research Workspace
 
@@ -144,7 +144,7 @@ Independent review is a task-level requirement and always uses fresh execution, 
 
 Do not forward the full conversation, all skill documents, or large logs. Provide task ID, objective, one selected skill, role, current evidence paths/hashes, uncertainties, output boundaries, permissions and acceptance criteria. Each packet has a new packet ID and current state fingerprint, including for the same task. Retained history never overrides the current assignment. Fingerprint the core contract without asking specialists to become another research manager.
 
-Use the host's actual create/resume facility. A fork inheriting the entire conversation is not fresh isolation. Record actual model, session mode and host-provided session ID in the receipt; never substitute task or packet IDs. If the host provides no ID, use null with an explanation, and do not claim that such a session is resumable. Verify history isolation for fresh execution and mark it false for current-session execution. The helper checks receipt consistency and recorded reuse identity; it cannot verify that host assertions are true.
+Use the host's actual create/resume facility. A fork inheriting the entire conversation is not fresh isolation. Record actual model, session mode and host-provided session ID in the receipt; never substitute task or packet IDs. If the host provides no ID, use null with an explanation, and do not claim that such a session is resumable. Verify history isolation for fresh execution and mark it false for current-session execution. The helper checks receipt consistency and recorded reuse identity; it cannot verify that host assertions are true. Receipt binding rules, including the packet digest and reuse ordering, are in [assignment contracts](references/assignment-contracts.md).
 
 No silent fallback: missing isolation, unavailable models or failed resume operations return to the core. Reissue a packet only if the revised request still satisfies the same task contract. Do not remove an independent-review requirement to use the author's current session. The `current` model alias alone cannot establish that the actual model is unchanged.
 
