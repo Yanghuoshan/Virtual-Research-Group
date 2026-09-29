@@ -18,15 +18,22 @@ The core owns the question, hypothesis priority, phase, selected skill, role, mo
 
 ## Specialist Skills
 
-The 13 direct entries cover:
+The 20 direct entries cover:
 
 - Hypothesis generation/ranking and problem reformulation.
+- [Literature review](skills/literature-review/SKILL.md): bounded search, screening and synthesis with traceable coverage limits; external retrieval needs authorization.
+- [Experimental design](skills/experimental-design/SKILL.md): draft controls, statistical units, power/precision assumptions and validation plans; no protocol freezing or execution.
+- [Reproducibility audit](skills/reproducibility-audit/SKILL.md): version-bound artifact and dependency checks; inspection is not an experimental rerun.
+- [Manuscript review](skills/manuscript-review/SKILL.md): evidence-linked critique and final-review proposals; recommendations do not grant approval.
 - ML manuscript writing and systems manuscript structure.
 - Quantitative plotting, research diagram design, and conference talks.
 - Citation identity and claim verification.
 - Graph evaluation, vision evaluation, rollout/control evaluation, symbolic verification, and scientific surrogate validation.
+- [LLM evaluation](skills/llm-evaluation/SKILL.md): benchmark contamination, prompt/decoding sensitivity, variance and reporting audits; no benchmark runs.
+- [Code model evaluation](skills/code-model-evaluation/SKILL.md): pass@k estimator, sandbox and oracle auditing; never executes generated code.
+- [Interpretability validation](skills/interpretability-validation/SKILL.md): baseline, control and replication checks for internal-mechanism claims; no training or interventions.
 
-These are focused methods, not universal training pipelines. A graph evaluator does not choose or train graph models. A writer does not commission experiments. Missing capabilities return to the core. Detailed references and templates remain inside their owning skill.
+These are focused methods, not universal training pipelines or a mandatory sequence. A graph evaluator does not choose or train graph models. A writer does not commission experiments. Only the core accepts protocols, approves audits, and selects follow-up tasks. Missing capabilities return to the core. Detailed methodological references remain inside their owning skill.
 
 ## Install
 

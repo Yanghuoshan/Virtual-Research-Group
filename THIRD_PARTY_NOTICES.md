@@ -16,6 +16,8 @@ The first-party content of this repository is MIT licensed; see [LICENSE](LICENS
 
 The upstream project declares MIT for its own material and notes that individual skills may reference libraries with different licenses. Adapted text remains attributed and is not claimed to be an unchanged upstream copy. Entry rewriting does not remove attribution obligations.
 
+Entries whose topics overlap upstream tool documentation (`llm-evaluation`, `code-model-evaluation`, `interpretability-validation`) were written independently for this repository as methodology audits. They contain no copied upstream text and are therefore not recorded in `provenance.json`.
+
 No third-party LaTeX templates are bundled. Conference author kits (ICML, ICLR, NeurIPS, ACL, AAAI, COLM, ASPLOS, NSDI, OSDI, SOSP) must be downloaded from each venue's official source; the links are in the two writing skills. Earlier revisions of this bundle carried copies of those templates, including LPPL-licensed style files such as `natbib.sty`, `fancyhdr.sty`, `algorithm.sty` and `algorithmic.sty`, plus example PDFs. They were removed before publication because their distribution conditions could not be satisfied here. Do not reintroduce them without clearing each license.
 
 ## Applicability and Execution

@@ -14,8 +14,8 @@ Task level, graph construction rules, split/entity identifiers, label availabili
 ## Method
 
 1. Establish the statistical unit: node, edge, graph, or graph family. Check duplicates and source-related graph groups before interpreting independent samples.
-2. Trace graph construction, normalization, features, and message-passing access to labels and held-out entities. Transductive access to unlabeled structure can be allowed by the protocol; held-out labels or future information cannot silently enter it.
-3. For link prediction, document negative sampling, filtered positives, temporal ordering, and whether reverse edges leak targets. Match candidate sets across methods.
+2. Trace graph construction, normalization, features, and message-passing access to labels and held-out entities, using [split integrity](references/split-integrity.md). Transductive access to unlabeled structure can be allowed by the protocol; held-out labels or future information cannot silently enter it.
+3. For link prediction, document negative sampling, filtered positives, temporal ordering, and whether reverse edges leak targets, following the [metric protocol](references/metric-protocol.md). Match candidate sets across methods.
 4. For graph classification, split correlated graphs by source entity where appropriate. Fit preprocessing only on permitted data. Verify validation-only model selection and untouched test reporting.
 5. Compute or check the metric exactly as specified: macro versus micro aggregation, multilabel handling, AUROC class availability, or ranking tie conventions. Record undefined metrics rather than substituting zero.
 6. Compare matched data, parameter/tuning budgets, seeds, and splits. Pair comparisons by split/seed and report the distribution, not the best run.
@@ -30,6 +30,13 @@ A protocol/evidence audit and, only when supplied predictions permit it, per-run
 Do not present node accuracy as graph accuracy. Do not infer unseen-graph generalization from a transductive node split. Distinguish confidence from additional dependent samples. Document graph-builder and sampler versions.
 
 Example: removing a held-out positive edge while retaining its reverse edge may invalidate an undirected link-prediction split.
+
+## Local References
+
+- [Graph split integrity](references/split-integrity.md)
+- [Graph metric protocol](references/metric-protocol.md)
+
+These define procedures for this skill only. They do not authorize training, model selection or changing splits.
 
 ## Boundary
 

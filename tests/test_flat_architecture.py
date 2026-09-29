@@ -153,6 +153,245 @@ class FlatArchitectureTests(unittest.TestCase):
             self.assertEqual(entry['path'], f'skills/{name}/SKILL.md')
             self.assertNotIn('optional_capabilities', entry)
 
+    def specialist_contract(self, name, fragments):
+        path = ROOT / 'skills' / name / 'SKILL.md'
+        self.assertTrue(path.is_file(), f'Missing specialist: {name}')
+        text = path.read_text(encoding='utf-8')
+        for fragment in fragments:
+            with self.subTest(skill=name, fragment=fragment):
+                self.assertIn(fragment, text)
+
+    def test_literature_review_contract_limits_search_and_coverage_claims(self):
+        self.specialist_contract('literature-review', (
+            'supplied-corpus', 'eligibility criteria', 'deduplicate', 'PRISMA',
+            'external_services', 'source locator', 'risk of bias',
+            'Do not invent', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_literature_review_bundles_local_method_references(self):
+        skill = ROOT / 'skills' / 'literature-review'
+        entry = (skill / 'SKILL.md').read_text(encoding='utf-8')
+        expected = {
+            'search-planning.md': ('Boolean', 'query log'),
+            'screening-ledger.md': ('deduplicat', 'exclusion reason'),
+            'bias-assessment.md': ('risk of bias', 'leakage'),
+            'extraction-and-reporting.md': ('locator', 'pool'),
+        }
+        for name, fragments in expected.items():
+            path = skill / 'references' / name
+            with self.subTest(reference=name):
+                self.assertTrue(path.is_file(), f'Missing reference: {name}')
+                self.assertIn(f'references/{name}', entry)
+                text = path.read_text(encoding='utf-8')
+                self.assertNotRegex(text, r'\]\(\.\./')
+                for fragment in fragments:
+                    with self.subTest(fragment=fragment):
+                        self.assertIn(fragment, text)
+
+    def test_new_specialists_bundle_local_method_references(self):
+        expected = {
+            'llm-evaluation': {
+                'contamination-checks.md': ('overlap', 'canary'),
+                'prompt-sensitivity.md': ('template', 'variant'),
+                'variance-and-reporting.md': ('interval', 'paired'),
+            },
+            'code-model-evaluation': {
+                'estimators.md': ('unbiased', 'variance'),
+                'sandbox-checklist.md': ('timeout', 'isolation'),
+                'oracle-and-provenance.md': ('coverage', 'license'),
+            },
+            'interpretability-validation': {
+                'baselines-and-controls.md': ('random', 'shuffl'),
+                'causal-claims.md': ('necessity', 'sufficiency'),
+                'statistics-and-reporting.md': ('multiplicity', 'agreement'),
+            },
+            'experimental-design': {
+                'design-catalog.md': ('factorial', 'ablation'),
+                'units-and-power.md': ('cluster', 'effect size'),
+                'evaluation-plan-mapping.md': ('primary_measure', 'validation_plan'),
+            },
+            'reproducibility-audit': {
+                'dependency-manifest.md': ('manifest', 'hash'),
+                'audit-report-template.md': ('status', 'blocker'),
+                'stale-binding-playbook.md': ('stale', 'rerun'),
+            },
+            'manuscript-review': {
+                'severity-rubric.md': ('blocking', 'minor'),
+                'review-report-template.md': ('claim', 'location'),
+                'independence-checklist.md': ('isolation', 'fresh'),
+            },
+        }
+        for skill, references in expected.items():
+            entry = (ROOT / 'skills' / skill / 'SKILL.md').read_text(encoding='utf-8')
+            for name, fragments in references.items():
+                path = ROOT / 'skills' / skill / 'references' / name
+                with self.subTest(skill=skill, reference=name):
+                    self.assertTrue(path.is_file(), f'Missing reference: {skill}/{name}')
+                    self.assertIn(f'references/{name}', entry)
+                    text = path.read_text(encoding='utf-8')
+                    self.assertNotRegex(text, r'\]\(\.\./')
+                    for fragment in fragments:
+                        with self.subTest(fragment=fragment):
+                            self.assertIn(fragment, text)
+
+    def test_experimental_design_contract_handles_dependence_and_power(self):
+        self.specialist_contract('experimental-design', (
+            'estimand', 'randomization', 'pseudoreplication', 'power',
+            'multiple comparisons', 'primary_measure', 'baseline',
+            'validation_plan', 'uncertainty_plan', 'Do not freeze',
+            'For proof-only work, skip', 'propose preprocessing and model-selection rules',
+            'Never overwrite', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_reproducibility_audit_contract_separates_inspection_from_approval(self):
+        self.specialist_contract('reproducibility-audit', (
+            'dependency', 'not checked', 'stale', 'schema_version', 'subjects',
+            'sha256', 'findings.md', 'raw evidence', 'inspection',
+            'Do not rerun', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_manuscript_review_contract_preserves_independence_and_evidence_gaps(self):
+        self.specialist_contract('manuscript-review', (
+            'independent_review', 'fresh', 'drafting history', 'severity',
+            'location', 'missing evidence', 'schema_version', 'subjects',
+            'findings.md', 'Do not approve', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_llm_evaluation_contract_covers_contamination_and_prompt_sensitivity(self):
+        self.specialist_contract('llm-evaluation', (
+            'contamination', 'held-out', 'few-shot', 'prompt', 'seed variance',
+            'matched', 'Do not tune', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_code_model_evaluation_contract_covers_estimators_and_sandbox(self):
+        self.specialist_contract('code-model-evaluation', (
+            'pass@k', 'unbiased estimator', 'sandbox', 'leakage', 'oracle',
+            'Do not execute', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_interpretability_validation_contract_demands_baselines_and_controls(self):
+        self.specialist_contract('interpretability-validation', (
+            'baseline', 'control', 'activation patching', 'SAE',
+            'multiple comparisons', 'cherry-picked', 'Do not train',
+            'Return to the core', 'Do not dispatch',
+        ))
+
+    def assert_references(self, skill, references):
+        entry = (ROOT / 'skills' / skill / 'SKILL.md').read_text(encoding='utf-8')
+        for name, fragments in references.items():
+            path = ROOT / 'skills' / skill / 'references' / name
+            with self.subTest(skill=skill, reference=name):
+                self.assertTrue(path.is_file(), f'Missing reference: {skill}/{name}')
+                self.assertIn(f'references/{name}', entry)
+                text = path.read_text(encoding='utf-8')
+                self.assertNotRegex(text, r'\]\(\.\./')
+                for fragment in fragments:
+                    with self.subTest(fragment=fragment):
+                        self.assertIn(fragment, text)
+
+    def test_evaluation_specialists_bundle_domain_references(self):
+        expected = {
+            'graph-evaluation': {
+                'split-integrity.md': ('transductive', 'inductive'),
+                'metric-protocol.md': ('macro', 'micro'),
+            },
+            'vision-evaluation': {
+                'split-integrity.md': ('near-duplicate', 'subject'),
+                'metric-protocol.md': ('threshold', 'confidence'),
+            },
+            'robotics-evaluation': {
+                'rollout-protocol.md': ('episode', 'seed'),
+                'safety-and-metrics.md': ('violation', 'success rate'),
+            },
+            'scientific-surrogate-validation': {
+                'units-and-consistency.md': ('dimensional', 'extrapolation'),
+                'uncertainty-and-baselines.md': ('calibration', 'interval'),
+            },
+            'symbolic-verification': {
+                'certificate-checking.md': ('certificate', 'timeout'),
+                'obligation-mapping.md': ('soundness', 'completeness'),
+            },
+        }
+        for skill, references in expected.items():
+            with self.subTest(skill=skill):
+                self.assert_references(skill, references)
+
+    def test_new_specialists_support_bounded_analysis_without_advancing_state(self):
+        self.initialize()
+        cases = (
+            ('literature-review', 'analyst', 'literature/review-v1.md', False),
+            ('experimental-design', 'methodologist', 'hypotheses/design-v1.md', False),
+            ('reproducibility-audit', 'reviewer', 'reviews/reproduction-v1.json', True),
+            ('manuscript-review', 'critic', 'reviews/manuscript-v1.json', True),
+            ('llm-evaluation', 'analyst', 'reviews/llm-eval-v1.md', False),
+            ('code-model-evaluation', 'analyst', 'reviews/code-eval-v1.md', False),
+            ('interpretability-validation', 'critic', 'reviews/interpretability-v1.md', False),
+        )
+        available = TOOL.discover_skills(ROOT)
+        for name, role, output, independent in cases:
+            with self.subTest(skill=name):
+                self.assertIn(name, available)
+                task = TOOL.create_task(
+                    ROOT, self.project, name, 'Inspect supplied material and report gaps',
+                    activity='analysis', skill=name, role=role,
+                    acceptance='Return a scoped proposal without approving or executing research',
+                    independent_review=independent)
+                before = (self.project / 'research-state.json').read_bytes()
+                packet = TOOL.handoff(
+                    ROOT, self.project, name, 'Bounded offline preparatory assignment',
+                    ['research-brief.md'], model='current', outputs=[output])
+                self.assertEqual(task['status'], 'planned')
+                self.assertEqual(packet['skill']['name'], name)
+                self.assertEqual(packet['allowed_outputs'], [output])
+                self.assertEqual(packet['activity'], 'analysis')
+                self.assertEqual(packet['project_phase'], 'scope')
+                self.assertEqual(packet['session']['independent_review'], independent)
+                self.assertEqual(packet['session']['mode'], 'fresh')
+                self.assertFalse(any(packet['authorization'].values()))
+                self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
+                self.assertFalse((self.project / output).exists())
+                with self.assertRaisesRegex(ValueError, 'evidence'):
+                    TOOL.handoff(ROOT, self.project, name, 'No input supplied', [],
+                                 model='current', outputs=[output])
+                if independent:
+                    for mode in ('current', 'reuse'):
+                        options = dict(session_mode=mode, session_reason='Deadline pressure')
+                        if mode == 'reuse':
+                            options['resume_session_id'] = 'author-session'
+                        with self.assertRaisesRegex(ValueError, 'Independent review'):
+                            TOOL.handoff(ROOT, self.project, name, 'Reuse author history',
+                                         ['research-brief.md'], model='current', outputs=[output],
+                                         **options)
+
+    def test_new_specialists_do_not_bypass_experiment_or_conclusions_gates(self):
+        self.initialize()
+        available = TOOL.discover_skills(ROOT)
+        for name in ('literature-review', 'experimental-design', 'reproducibility-audit',
+                     'manuscript-review', 'llm-evaluation', 'code-model-evaluation',
+                     'interpretability-validation'):
+            for activity, error in (('experiment', 'experiment authorization'),
+                                    ('conclusions', 'Verified findings required')):
+                with self.subTest(skill=name, activity=activity):
+                    self.assertIn(name, available)
+                    task_id = f'{name}-{activity}'
+                    TOOL.create_task(ROOT, self.project, task_id, 'Attempt restricted work',
+                                     activity=activity, skill=name, role='analyst',
+                                     acceptance='Check activity gates')
+                    with self.assertRaisesRegex(ValueError, error):
+                        TOOL.handoff(ROOT, self.project, task_id, 'No permission escalation',
+                                     ['research-brief.md'], model='current',
+                                     outputs=[f'reports/{task_id}.md'])
+
+    def test_readme_describes_current_specialist_count_and_new_scopes(self):
+        text = (ROOT / 'README.md').read_text(encoding='utf-8')
+        count = re.search(r'The (\d+) direct entries cover:', text)
+        self.assertIsNotNone(count)
+        self.assertEqual(int(count.group(1)), len(TOOL.discover_skills(ROOT)))
+        for name in ('literature-review', 'experimental-design',
+                     'reproducibility-audit', 'manuscript-review'):
+            with self.subTest(skill=name):
+                self.assertIn(f'skills/{name}/SKILL.md', text)
+
     def test_each_specialist_has_vertical_contract(self):
         entries = list((ROOT / 'skills').glob('*/SKILL.md'))
         self.assertGreaterEqual(len(entries), 12)

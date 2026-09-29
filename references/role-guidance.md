@@ -34,10 +34,15 @@ These names are conventional defaults, not a registry. Any lowercase hyphenated 
 ## Worked Examples
 
 - Scope clarification → `strategist` with `creative-thinking-for-research`.
-- Protocol and metric design → `methodologist` with `graph-evaluation`.
-- Running a frozen experiment → `experimenter` with the relevant evaluation skill.
-- Explaining an unexpected gain → `analyst` with `graph-evaluation`, then a separate `reviewer` task if the claim will be published.
+- Bounded cross-study synthesis → `analyst` with `literature-review`; retrieval permissions remain explicit.
+- General protocol design → `methodologist` with `experimental-design`; graph-specific split auditing may instead call for `graph-evaluation`.
+- Running a frozen experiment → `experimenter` with a skill whose actual contract permits that execution. If none fits, report the gap; an evaluator or designer is not automatically an executor.
+- Explaining an unexpected gain → `analyst` with `graph-evaluation`; any later review is a separate core-selected task.
+- Version-bound artifact assessment → `reviewer` with `reproducibility-audit`, with `independent_review=true` when independent assessment is required.
+- Auditing an LLM benchmark claim → `analyst` with `llm-evaluation`, using supplied logs; a rerun is a separate authorized task.
+- Auditing code-generation results → `analyst` with `code-model-evaluation`; executing generated code stays an explicitly authorized execution task.
+- Checking internal-mechanism claims → `critic` with `interpretability-validation`; baselines and controls decide whether the claim is descriptively or causally supported.
 - Writing from verified findings → `writer` with `ml-paper-writing`.
-- Pre-submission critique → `critic` with `independent_review=true`.
+- Independent pre-submission critique → `critic` with `manuscript-review` and `independent_review=true`.
 
 Examples are not a pipeline. Each task is a separate core decision, and a task's role does not bind the next task.
