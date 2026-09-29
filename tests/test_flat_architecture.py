@@ -316,6 +316,30 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assert_references(skill, references)
 
+    def test_citation_reference_defers_channel_choice_to_the_core(self):
+        text = (ROOT / 'skills/citation-verification/references/citation-workflow.md').read_text(encoding='utf-8')
+        entry = (ROOT / 'skills/citation-verification/SKILL.md').read_text(encoding='utf-8')
+        for stale in ('always verify programmatically', 'Confirm paper exists in 2+ sources',
+                      'Paper found in at least 2 sources'):
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, text)
+        for fragment in ('assigned channel', 'assigned retrieval channel',
+                         'return that gap to the core', 'Channel Selection Belongs to the Core'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, text)
+        self.assertIn('Use only retrieval explicitly permitted', entry)
+
+    def test_selection_guidance_separates_the_two_ideation_skills(self):
+        text = (ROOT / 'references/capability-selection.md').read_text(encoding='utf-8')
+        for skill in ('brainstorming-research-ideas', 'creative-thinking-for-research'):
+            with self.subTest(skill=skill):
+                self.assertIn(skill, text)
+
+    def test_model_guidance_separates_alias_from_session_isolation(self):
+        text = (ROOT / 'references/model-guidance.md').read_text(encoding='utf-8')
+        self.assertIn('Independence is established by session isolation', text)
+        self.assertIn('session isolation', text)
+
     def test_ideation_specialists_bundle_method_references(self):
         expected = {
             'brainstorming-research-ideas': {

@@ -1,6 +1,6 @@
 # Citation Management & Hallucination Prevention
 
-This reference contains historical API and bibliography examples adapted from Orchestra Research. Use only retrieval channels and tools explicitly assigned by the core. Examples are not permission to install services, purchase access, expand a search, or call another skill; return unavailable prerequisites to the core. Verify historical service limits and statistical claims before relying on them.
+This reference contains historical API and bibliography examples adapted from Orchestra Research. Use only retrieval channels and tools explicitly assigned by the core. Examples are not permission to install services, purchase access, expand a search, or call another skill; return unavailable prerequisites to the core. Verify historical service limits and statistical claims before relying on them. Where this document names a specific API or prescribes a multi-source rule, treat it as a historical example: the channel assigned by the core governs, and provider selection is a core decision.
 
 ---
 
@@ -38,7 +38,7 @@ Research has documented significant issues with AI-generated citations:
 
 ### Solution
 
-**Never generate citations from memory—always verify programmatically.**
+Never generate citations from memory. Verify identity and metadata against supplied source material or the retrieval channel assigned by the core; programmatic lookup is preferred when an assigned channel exists. A missing channel is a blocker, not permission to install a service, switch providers, or scrape another source.
 
 ---
 
@@ -53,7 +53,9 @@ Research has documented significant issues with AI-generated citations:
 | **arXiv** | Preprints | 3-second delays | ML preprints, PDF access |
 | **OpenAlex** | 240M+ works | 100K/day, 10 RPS | Open alternative to MAG |
 
-### API Selection Guide
+### Channel Selection Belongs to the Core
+
+The decision block below is a historical example of how these APIs differ. Do not use it to pick a provider: the core assigns the channel, and this skill uses only that channel.
 
 ```
 Need ML paper search? → Semantic Scholar
@@ -73,9 +75,9 @@ This reference does not provide an official Google Scholar API integration. If t
 ### 5-Step Process
 
 ```
-1. SEARCH → Query Semantic Scholar with specific keywords
+1. SEARCH → Query the channel assigned by the core with specific keywords
      ↓
-2. VERIFY → Confirm paper exists in 2+ sources
+2. VERIFY → Confirm identity in that channel; corroborate in a second source only if one was assigned
      ↓
 3. RETRIEVE → Get BibTeX via DOI content negotiation
      ↓
@@ -105,7 +107,7 @@ for paper in results:
 
 ### Step 2: Verify Existence
 
-Confirm paper exists in at least two sources:
+Confirm identity in the assigned channel; corroborate in a second source only when the core assigned one:
 
 ```python
 import requests
@@ -534,7 +536,7 @@ brown_2020_language
 
 Before adding a citation:
 
-- [ ] Paper found in at least 2 sources
+- [ ] Identity confirmed in the assigned channel (second source only if assigned)
 - [ ] DOI or arXiv ID verified
 - [ ] BibTeX retrieved (not generated from memory)
 - [ ] Entry type correct (@inproceedings vs @article)

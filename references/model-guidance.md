@@ -29,7 +29,9 @@ Choose by the judgment density of the task, not by its phase. A routine check in
 - no independence requirement applies,
 - the actual model identity is either known or genuinely irrelevant to the result.
 
-It is not appropriate when a specific capability is required, when comparing outputs across models, or when an independent assessment is required. **`current` is an alias, not evidence that the actual model is unchanged.** The receipt records the actual model; for `current`, the core cannot assert that it matches a previous run.
+It is not appropriate when a specific capability is required, when comparing outputs across models, or when model identity must be traceable across runs. **`current` is an alias, not evidence that the actual model is unchanged.** The receipt records the actual model; for `current`, the core cannot assert that it matches a previous run.
+
+Independence is established by session isolation, not by the model choice: an independent review requires a core-verified fresh session that excludes the author's drafting history. The `current` alias does not by itself break that isolation, but it does remove model traceability, so pair it with explicit recording of the actual model whenever the result will be compared or audited.
 
 ## When the Requested Model Is Unavailable
 

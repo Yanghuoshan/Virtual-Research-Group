@@ -56,8 +56,8 @@
     "ml-paper-writing/references/citation-workflow.md": {
       "path": "skills/citation-verification/references/citation-workflow.md",
       "original_sha256": "067a3b02daa8b4d0f3238e64d34f471bb359b96e75ddce8fa962aaf5e431e7ed",
-      "sha256": "5535e5926ada4911b8cd1f7dd71304eee599f070f74241c4b1ca6b0888b59f31",
-      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained."
+      "sha256": "0f752e354f542f8b139d11dc8664118c1038e6a8ca3e80a28430ba23af3bf277",
+      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained. Further local edit 2026-09-29: removed historical provider-selection and mandatory multi-source instructions; retrieval now defers to the core-assigned channel."
     },
     "ml-paper-writing/references/reviewer-guidelines.md": {
       "path": "skills/ml-paper-writing/references/reviewer-guidelines.md",
