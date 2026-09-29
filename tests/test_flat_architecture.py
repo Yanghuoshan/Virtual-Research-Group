@@ -316,6 +316,23 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assert_references(skill, references)
 
+    def test_ideation_specialists_bundle_method_references(self):
+        expected = {
+            'brainstorming-research-ideas': {
+                'ideation-lenses.md': ('tension', 'stakeholder'),
+                'candidate-schema.md': ('falsifier', 'ordinal'),
+                'ideation-pitfalls.md': ('premature convergence', 'echo chamber'),
+            },
+            'creative-thinking-for-research': {
+                'reformulation-frameworks.md': ('bisociation', 'constraint'),
+                'analogy-validation.md': ('structural', 'surface'),
+                'creative-blocks.md': ('fixation', 'tunnel vision'),
+            },
+        }
+        for skill, references in expected.items():
+            with self.subTest(skill=skill):
+                self.assert_references(skill, references)
+
     def test_new_specialists_support_bounded_analysis_without_advancing_state(self):
         self.initialize()
         cases = (
