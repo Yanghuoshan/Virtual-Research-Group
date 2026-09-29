@@ -44,4 +44,14 @@ Return to the core with the artifact and gaps. Do not dispatch other skills or a
 - [Reviewer guidance](references/reviewer-guidelines.md)
 - [Historical venue details](references/systems-conferences.md)
 
+## Venue Templates (External)
+
+No LaTeX templates are bundled. Download the current author kit from the venue's official source and verify the year's page limit and formatting rules before drafting; bundled copies would be stale and are not redistributable here.
+
+- ASPLOS: https://www.asplos-conference.org/
+- NSDI and OSDI (USENIX): https://www.usenix.org/conferences/
+- SOSP (ACM SIGOPS): https://www.sigops.org/
+
+A missing template or toolchain is a blocker returned to the core. Do not install TeX packages, choose a different venue, or redirect the task to another skill.
+
 Apply local technical advice only within the supplied task, tools, and evidence scope.

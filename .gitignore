@@ -2,3 +2,12 @@ __pycache__/
 *.py[cod]
 .venv/
 projects/
+.DS_Store
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/

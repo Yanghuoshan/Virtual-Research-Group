@@ -44,14 +44,14 @@
     "ml-paper-writing/SKILL.md": {
       "path": "skills/ml-paper-writing/SKILL.md",
       "original_sha256": "96733e6d758642d792ed15b7c08eb90548d4775099368cd72a8312127f2fe911",
-      "sha256": "de2f035bdcef3ebf01d3172a81d7287dba163cff04619632e5582867cb5eeecb",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "2df28b89fccbcc42e9bb5fb319f5551e88243ae8770d2c03750b0e759cf1ffd8",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
     },
     "ml-paper-writing/references/checklists.md": {
       "path": "skills/ml-paper-writing/references/checklists.md",
       "original_sha256": "32ae2ab79544ce6476c393e5a95bdc1851ed21da1c5339fa53fa4067e881c696",
-      "sha256": "c747f405650f404b08c2b6aba2ddc6657a8e8915a5a23bc4055f0efdd97dc6d2",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "ddf496edc2a5ec96d758be327cbe0673352015a984eb5898db57ec0260e7d2a0",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
     },
     "ml-paper-writing/references/citation-workflow.md": {
       "path": "skills/citation-verification/references/citation-workflow.md",
@@ -77,293 +77,17 @@
       "sha256": "ed5ff6960a04bd385b6a28577a26428056e35920001b1916240a4eb563f54709",
       "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
     },
-    "ml-paper-writing/templates/README.md": {
-      "path": "skills/ml-paper-writing/templates/README.md",
-      "original_sha256": "e50847475af057a6e1e6f76b8026e602e2e7b80ce466be8e7015869ac59f661b",
-      "sha256": "a109a501912ff6dddf4da6623964f75f45b989b2cc3ee340b32f67d1bd8e621c",
-      "note": "Bound template/source guidance to core-assigned tools and scope; removed cross-skill redirection, autonomous setup, watchers and default uploads. Original source hash retained."
-    },
-    "ml-paper-writing/templates/aaai2026/README.md": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/README.md",
-      "original_sha256": "ee2c61a8b06e1471c0df7c774074d2ff1be824e6377a9e38f6adca5c68ddbb60",
-      "sha256": "1f3d80b7b5668146e041999b67eef077d1194b3cd752574bf03fc42d5e3b76aa",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/aaai2026/aaai2026-unified-supp.tex": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/aaai2026-unified-supp.tex",
-      "original_sha256": "35adcff419efc25a032140c520d40520d0d0fc69123e9d8e38ad161c40ad07b7",
-      "sha256": "35adcff419efc25a032140c520d40520d0d0fc69123e9d8e38ad161c40ad07b7",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/aaai2026/aaai2026-unified-template.tex": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/aaai2026-unified-template.tex",
-      "original_sha256": "bed12c50b5e027fd88097d238ec4e7ebf1ae7b450cb06d6df7c8ae126a620aea",
-      "sha256": "bed12c50b5e027fd88097d238ec4e7ebf1ae7b450cb06d6df7c8ae126a620aea",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/aaai2026/aaai2026.bib": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/aaai2026.bib",
-      "original_sha256": "d8fcf3dc09b9d489aeff13631174c5998a48cb0d0800ac8a00a2f7bdbc40295b",
-      "sha256": "d8fcf3dc09b9d489aeff13631174c5998a48cb0d0800ac8a00a2f7bdbc40295b",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/aaai2026/aaai2026.bst": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/aaai2026.bst",
-      "original_sha256": "ac26e2c66047435c0ed25f21ae36ad42d731cf3d794c4a8b5f05a62141a27294",
-      "sha256": "ac26e2c66047435c0ed25f21ae36ad42d731cf3d794c4a8b5f05a62141a27294",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/aaai2026/aaai2026.sty": {
-      "path": "skills/ml-paper-writing/templates/aaai2026/aaai2026.sty",
-      "original_sha256": "a39f1866a04dd1e2603613c876fa446aaea2c2f3e34d02be868fd21520bfade5",
-      "sha256": "a39f1866a04dd1e2603613c876fa446aaea2c2f3e34d02be868fd21520bfade5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/README.md": {
-      "path": "skills/ml-paper-writing/templates/acl/README.md",
-      "original_sha256": "e55608f9bc0b564f58d864d43197547785ef021c3ec1c5f0a6d2057aa615681e",
-      "sha256": "e55608f9bc0b564f58d864d43197547785ef021c3ec1c5f0a6d2057aa615681e",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/acl.sty": {
-      "path": "skills/ml-paper-writing/templates/acl/acl.sty",
-      "original_sha256": "19dfeddc2c0e448f3926a0bef048a9db3f3611b46265b760caabd7ada4f361de",
-      "sha256": "19dfeddc2c0e448f3926a0bef048a9db3f3611b46265b760caabd7ada4f361de",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/acl_latex.tex": {
-      "path": "skills/ml-paper-writing/templates/acl/acl_latex.tex",
-      "original_sha256": "339c9ee9705c1767d44ef24b85365c0bb8619ecc3fcf66172bf1356292389614",
-      "sha256": "339c9ee9705c1767d44ef24b85365c0bb8619ecc3fcf66172bf1356292389614",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/acl_lualatex.tex": {
-      "path": "skills/ml-paper-writing/templates/acl/acl_lualatex.tex",
-      "original_sha256": "0d9987ba833331a996f9abcd1a03eebba7d7ae331145793e7ddb6b5ae8db27b3",
-      "sha256": "0d9987ba833331a996f9abcd1a03eebba7d7ae331145793e7ddb6b5ae8db27b3",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/acl_natbib.bst": {
-      "path": "skills/ml-paper-writing/templates/acl/acl_natbib.bst",
-      "original_sha256": "e332fd51dcea48e2a8a89754892c3cb99674a1cd70b527b661e9aaffc235e83c",
-      "sha256": "e332fd51dcea48e2a8a89754892c3cb99674a1cd70b527b661e9aaffc235e83c",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/anthology.bib.txt": {
-      "path": "skills/ml-paper-writing/templates/acl/anthology.bib.txt",
-      "original_sha256": "2b78d2d9aeda62e14c4e46099e8225b5fc116387d8e0a54aad776485e249ceff",
-      "sha256": "2b78d2d9aeda62e14c4e46099e8225b5fc116387d8e0a54aad776485e249ceff",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/custom.bib": {
-      "path": "skills/ml-paper-writing/templates/acl/custom.bib",
-      "original_sha256": "d76ccb30ddceb70c9e1ad0be3f43dfe301ad5765aab2c960fc830ef67bf8232a",
-      "sha256": "d76ccb30ddceb70c9e1ad0be3f43dfe301ad5765aab2c960fc830ef67bf8232a",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/acl/formatting.md": {
-      "path": "skills/ml-paper-writing/templates/acl/formatting.md",
-      "original_sha256": "9e004a136c5dd43300d97e5bef5eb3a77d0e2a2d3502f0f2436ec011d1c49e9c",
-      "sha256": "9e004a136c5dd43300d97e5bef5eb3a77d0e2a2d3502f0f2436ec011d1c49e9c",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/README.md": {
-      "path": "skills/ml-paper-writing/templates/colm2025/README.md",
-      "original_sha256": "7c2c585d565482357dffdf499b567929e07a9f09619608c19ce9eb2984697ea1",
-      "sha256": "7c2c585d565482357dffdf499b567929e07a9f09619608c19ce9eb2984697ea1",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/colm2025_conference.bib": {
-      "path": "skills/ml-paper-writing/templates/colm2025/colm2025_conference.bib",
-      "original_sha256": "c5fabf46cc7d7a6e527b82860b9a9d658eb07f63abaafa9b7beb631d8abb91bd",
-      "sha256": "c5fabf46cc7d7a6e527b82860b9a9d658eb07f63abaafa9b7beb631d8abb91bd",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/colm2025_conference.bst": {
-      "path": "skills/ml-paper-writing/templates/colm2025/colm2025_conference.bst",
-      "original_sha256": "2d67552db7ed38ccfccb5957b52f95656e25c249724761d3cf5f7922ad1844c5",
-      "sha256": "2d67552db7ed38ccfccb5957b52f95656e25c249724761d3cf5f7922ad1844c5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/colm2025_conference.pdf": {
-      "path": "skills/ml-paper-writing/templates/colm2025/colm2025_conference.pdf",
-      "original_sha256": "d8b3d74bc81aec9ba9d6b739b4922adc93ae002d7c82522b9c6064014bec1d16",
-      "sha256": "d8b3d74bc81aec9ba9d6b739b4922adc93ae002d7c82522b9c6064014bec1d16",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/colm2025_conference.sty": {
-      "path": "skills/ml-paper-writing/templates/colm2025/colm2025_conference.sty",
-      "original_sha256": "79df8b2a1b142dfb324a0a7e87fabcd9d5dc2a34700e1c6c083a9bbb9e5daa8e",
-      "sha256": "79df8b2a1b142dfb324a0a7e87fabcd9d5dc2a34700e1c6c083a9bbb9e5daa8e",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/colm2025_conference.tex": {
-      "path": "skills/ml-paper-writing/templates/colm2025/colm2025_conference.tex",
-      "original_sha256": "baf01cd056ccd1b35165d190019414946217de1683f8ae3ddc66b11e3c653dbc",
-      "sha256": "baf01cd056ccd1b35165d190019414946217de1683f8ae3ddc66b11e3c653dbc",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/fancyhdr.sty": {
-      "path": "skills/ml-paper-writing/templates/colm2025/fancyhdr.sty",
-      "original_sha256": "b56ec4434b9f4607529a4b23dc68ad8d4b94f1f631c8cddaf7da78140d53a5ea",
-      "sha256": "b56ec4434b9f4607529a4b23dc68ad8d4b94f1f631c8cddaf7da78140d53a5ea",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/math_commands.tex": {
-      "path": "skills/ml-paper-writing/templates/colm2025/math_commands.tex",
-      "original_sha256": "90473c4d0542070db244cea73ef962d6cddc5b2a746757e6a40ddf5fdfb90ba9",
-      "sha256": "90473c4d0542070db244cea73ef962d6cddc5b2a746757e6a40ddf5fdfb90ba9",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/colm2025/natbib.sty": {
-      "path": "skills/ml-paper-writing/templates/colm2025/natbib.sty",
-      "original_sha256": "88bc70c0e48461934cab5b2accef06b74a8b3ac45ad03ccd3f2a6b7e0d6d530d",
-      "sha256": "88bc70c0e48461934cab5b2accef06b74a8b3ac45ad03ccd3f2a6b7e0d6d530d",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/fancyhdr.sty": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/fancyhdr.sty",
-      "original_sha256": "b56ec4434b9f4607529a4b23dc68ad8d4b94f1f631c8cddaf7da78140d53a5ea",
-      "sha256": "b56ec4434b9f4607529a4b23dc68ad8d4b94f1f631c8cddaf7da78140d53a5ea",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/iclr2026_conference.bib": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/iclr2026_conference.bib",
-      "original_sha256": "cdd86e7d4c31854dcf2145871657c944588a6d44c3b72e160ff4baa8df1a52fb",
-      "sha256": "cdd86e7d4c31854dcf2145871657c944588a6d44c3b72e160ff4baa8df1a52fb",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/iclr2026_conference.bst": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/iclr2026_conference.bst",
-      "original_sha256": "2d67552db7ed38ccfccb5957b52f95656e25c249724761d3cf5f7922ad1844c5",
-      "sha256": "2d67552db7ed38ccfccb5957b52f95656e25c249724761d3cf5f7922ad1844c5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/iclr2026_conference.pdf": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/iclr2026_conference.pdf",
-      "original_sha256": "cb3d414cfa4702d52de94de1c8123c34b2cf46b7a5510df49dcc1014a6c266cf",
-      "sha256": "cb3d414cfa4702d52de94de1c8123c34b2cf46b7a5510df49dcc1014a6c266cf",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/iclr2026_conference.sty": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/iclr2026_conference.sty",
-      "original_sha256": "a4852f68e080d6c5245057ca2039100b409e31727898aa93c03d78ddb84374a3",
-      "sha256": "a4852f68e080d6c5245057ca2039100b409e31727898aa93c03d78ddb84374a3",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/iclr2026_conference.tex": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/iclr2026_conference.tex",
-      "original_sha256": "941b58de6e52f5538de0ebfe2d20425a79e1768cb271d453b7436904b5159859",
-      "sha256": "941b58de6e52f5538de0ebfe2d20425a79e1768cb271d453b7436904b5159859",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/math_commands.tex": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/math_commands.tex",
-      "original_sha256": "90473c4d0542070db244cea73ef962d6cddc5b2a746757e6a40ddf5fdfb90ba9",
-      "sha256": "90473c4d0542070db244cea73ef962d6cddc5b2a746757e6a40ddf5fdfb90ba9",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/iclr2026/natbib.sty": {
-      "path": "skills/ml-paper-writing/templates/iclr2026/natbib.sty",
-      "original_sha256": "88bc70c0e48461934cab5b2accef06b74a8b3ac45ad03ccd3f2a6b7e0d6d530d",
-      "sha256": "88bc70c0e48461934cab5b2accef06b74a8b3ac45ad03ccd3f2a6b7e0d6d530d",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/algorithm.sty": {
-      "path": "skills/ml-paper-writing/templates/icml2026/algorithm.sty",
-      "original_sha256": "93fd0eb31c112eb405833db8f1d7f5d238c7e691b1c05680d7276e68f36d564a",
-      "sha256": "93fd0eb31c112eb405833db8f1d7f5d238c7e691b1c05680d7276e68f36d564a",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/algorithmic.sty": {
-      "path": "skills/ml-paper-writing/templates/icml2026/algorithmic.sty",
-      "original_sha256": "48d18794a5d97c0479a588cc2eac0917992feb9da83acc4631b8f55757d80f9b",
-      "sha256": "48d18794a5d97c0479a588cc2eac0917992feb9da83acc4631b8f55757d80f9b",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/example_paper.bib": {
-      "path": "skills/ml-paper-writing/templates/icml2026/example_paper.bib",
-      "original_sha256": "df950103d38f9cfc81b1f40d84c9be2a3525d046d2991a6973a4446922c06bd1",
-      "sha256": "df950103d38f9cfc81b1f40d84c9be2a3525d046d2991a6973a4446922c06bd1",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/example_paper.pdf": {
-      "path": "skills/ml-paper-writing/templates/icml2026/example_paper.pdf",
-      "original_sha256": "3e8fe0e952de8702ca4697dba09ca52e83bd649767b92a8340d34a591caa4d1b",
-      "sha256": "3e8fe0e952de8702ca4697dba09ca52e83bd649767b92a8340d34a591caa4d1b",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/example_paper.tex": {
-      "path": "skills/ml-paper-writing/templates/icml2026/example_paper.tex",
-      "original_sha256": "c2ca8140bf255d1ff77d1278eb3eefed4018b4b1e71065b8e1ccbc68b74c8acf",
-      "sha256": "c2ca8140bf255d1ff77d1278eb3eefed4018b4b1e71065b8e1ccbc68b74c8acf",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/fancyhdr.sty": {
-      "path": "skills/ml-paper-writing/templates/icml2026/fancyhdr.sty",
-      "original_sha256": "9130c52f91087abc6d223164ffa587e207e3257fcbcd069ef09ecb5391043f14",
-      "sha256": "9130c52f91087abc6d223164ffa587e207e3257fcbcd069ef09ecb5391043f14",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/icml2026.bst": {
-      "path": "skills/ml-paper-writing/templates/icml2026/icml2026.bst",
-      "original_sha256": "0ec3d5eb9b02efb7e0b44a32f3775882f42a743d0bdc618f34e6936309b98764",
-      "sha256": "0ec3d5eb9b02efb7e0b44a32f3775882f42a743d0bdc618f34e6936309b98764",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/icml2026.sty": {
-      "path": "skills/ml-paper-writing/templates/icml2026/icml2026.sty",
-      "original_sha256": "7cdcf90f6a59c5219e7f15c88f7ed09fcaf598dad91e6cdddc4dc3cb0e397a95",
-      "sha256": "7cdcf90f6a59c5219e7f15c88f7ed09fcaf598dad91e6cdddc4dc3cb0e397a95",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/icml2026/icml_numpapers.pdf": {
-      "path": "skills/ml-paper-writing/templates/icml2026/icml_numpapers.pdf",
-      "original_sha256": "d34e8da982296363627996e6e18850c11fbd616e6946061237051e7a8f7080bb",
-      "sha256": "d34e8da982296363627996e6e18850c11fbd616e6946061237051e7a8f7080bb",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/neurips2025/Makefile": {
-      "path": "skills/ml-paper-writing/templates/neurips2025/Makefile",
-      "original_sha256": "0983425d74e769f2457f6ff0654cf76fc0c95f8d158fc8eaec66c5697ba0594f",
-      "sha256": "0983425d74e769f2457f6ff0654cf76fc0c95f8d158fc8eaec66c5697ba0594f",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/neurips2025/extra_pkgs.tex": {
-      "path": "skills/ml-paper-writing/templates/neurips2025/extra_pkgs.tex",
-      "original_sha256": "fcd6b09156fa193c347f6acd8188d430fa28f769fb6e2c2514cbbd215c39014a",
-      "sha256": "fcd6b09156fa193c347f6acd8188d430fa28f769fb6e2c2514cbbd215c39014a",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/neurips2025/main.tex": {
-      "path": "skills/ml-paper-writing/templates/neurips2025/main.tex",
-      "original_sha256": "366c093fbc3018c46de28f3fe0ecb063b4aba10a089afe037837bbf673a9c4d6",
-      "sha256": "366c093fbc3018c46de28f3fe0ecb063b4aba10a089afe037837bbf673a9c4d6",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "ml-paper-writing/templates/neurips2025/neurips.sty": {
-      "path": "skills/ml-paper-writing/templates/neurips2025/neurips.sty",
-      "original_sha256": "ef7a55f0a7c9da12fea39af7990a6a314a721b74a23b1544f252e55fcba940cd",
-      "sha256": "ef7a55f0a7c9da12fea39af7990a6a314a721b74a23b1544f252e55fcba940cd",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
     "presenting-conference-talks/SKILL.md": {
       "path": "skills/presenting-conference-talks/SKILL.md",
       "original_sha256": "5fb6b8f9e5b7690dcb0d783ff1e07c6d3f6b950b8f1238e0672e1f3c53bad57f",
       "sha256": "eeb989fab6471da08b1e432e34ca3f5a4013c34e97b7bf3aa05ac07344c3e28e",
       "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
     },
-    "presenting-conference-talks/references/slide-templates.md": {
-      "path": "skills/presenting-conference-talks/references/slide-templates.md",
-      "original_sha256": "4b2b95e5141a671f7e790b77bc467c4ab13092512506e38e6c5644e37552907e",
-      "sha256": "b4f920bf790f58edbc2f3cc87cdf303bee001af8eed24039d78dc757872a6d6d",
-      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained."
-    },
     "systems-paper-writing/SKILL.md": {
       "path": "skills/systems-paper-writing/SKILL.md",
       "original_sha256": "ee31b50b25192efcfcbe3252d7e15d88ec27bbd94817640b0357090f94c0e297",
-      "sha256": "0b47de0ddb98a919a7783f4e16350c54d743dd45da50ab87a8e7055f4b811e20",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "abd1b91f2141e45f1287c58bda959dba95e34a200111c92d02b68572fbe7a98a",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
     },
     "systems-paper-writing/references/checklist.md": {
       "path": "skills/systems-paper-writing/references/checklist.md",
@@ -393,66 +117,6 @@
       "path": "skills/systems-paper-writing/references/writing-patterns.md",
       "original_sha256": "593f80a581fbeb1e9fc07360ee94940a111a3db4a023d3e27bf6df300d7216d5",
       "sha256": "593f80a581fbeb1e9fc07360ee94940a111a3db4a023d3e27bf6df300d7216d5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/asplos2027/main.tex": {
-      "path": "skills/systems-paper-writing/templates/asplos2027/main.tex",
-      "original_sha256": "4a1837ef362f6d9dfc7bd65342daeed76991f766cb865946c605ab6f2c9224a9",
-      "sha256": "4a1837ef362f6d9dfc7bd65342daeed76991f766cb865946c605ab6f2c9224a9",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/asplos2027/references.bib": {
-      "path": "skills/systems-paper-writing/templates/asplos2027/references.bib",
-      "original_sha256": "bb91a9682e9039be84b7ad5dfa319f126ad1d739b4ebf7f02268e70f3a5ef6d8",
-      "sha256": "bb91a9682e9039be84b7ad5dfa319f126ad1d739b4ebf7f02268e70f3a5ef6d8",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/nsdi2027/main.tex": {
-      "path": "skills/systems-paper-writing/templates/nsdi2027/main.tex",
-      "original_sha256": "4a5913c17310d955b9612d3f1a105e43d2191c57c4cba77776975ae8abcf0a9c",
-      "sha256": "4a5913c17310d955b9612d3f1a105e43d2191c57c4cba77776975ae8abcf0a9c",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/nsdi2027/references.bib": {
-      "path": "skills/systems-paper-writing/templates/nsdi2027/references.bib",
-      "original_sha256": "5637b0148fc843a355bb1ef1b14eb9721e9955dce477a2611a23b44832883984",
-      "sha256": "5637b0148fc843a355bb1ef1b14eb9721e9955dce477a2611a23b44832883984",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/nsdi2027/usenix-2020-09.sty": {
-      "path": "skills/systems-paper-writing/templates/nsdi2027/usenix-2020-09.sty",
-      "original_sha256": "2ac10f959e00fc4dbb56a8b98897def8fcc61299ea78eb8381585e64d98a1a9d",
-      "sha256": "2ac10f959e00fc4dbb56a8b98897def8fcc61299ea78eb8381585e64d98a1a9d",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/osdi2026/main.tex": {
-      "path": "skills/systems-paper-writing/templates/osdi2026/main.tex",
-      "original_sha256": "1fe19e1dbb91f8971c0a40bcedc5543691efee9e1b36544020c08e650f3d6f48",
-      "sha256": "1fe19e1dbb91f8971c0a40bcedc5543691efee9e1b36544020c08e650f3d6f48",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/osdi2026/references.bib": {
-      "path": "skills/systems-paper-writing/templates/osdi2026/references.bib",
-      "original_sha256": "5e7b2647081796958a3bb94b24f198718e4f3d3bd803cc9c5f5840873ca6af4b",
-      "sha256": "5e7b2647081796958a3bb94b24f198718e4f3d3bd803cc9c5f5840873ca6af4b",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/osdi2026/usenix-2020-09.sty": {
-      "path": "skills/systems-paper-writing/templates/osdi2026/usenix-2020-09.sty",
-      "original_sha256": "2ac10f959e00fc4dbb56a8b98897def8fcc61299ea78eb8381585e64d98a1a9d",
-      "sha256": "2ac10f959e00fc4dbb56a8b98897def8fcc61299ea78eb8381585e64d98a1a9d",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/sosp2026/main.tex": {
-      "path": "skills/systems-paper-writing/templates/sosp2026/main.tex",
-      "original_sha256": "c15c1e4a96790a2599f129951e950d9cc91f6afeb3867accb573922fb64ef0c2",
-      "sha256": "c15c1e4a96790a2599f129951e950d9cc91f6afeb3867accb573922fb64ef0c2",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
-    },
-    "systems-paper-writing/templates/sosp2026/references.bib": {
-      "path": "skills/systems-paper-writing/templates/sosp2026/references.bib",
-      "original_sha256": "099c4aeffa0978d7a71d71e313f0723100c8d04071830bec5bf74fc43ba08cdb",
-      "sha256": "099c4aeffa0978d7a71d71e313f0723100c8d04071830bec5bf74fc43ba08cdb",
       "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
     }
   }

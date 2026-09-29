@@ -18,7 +18,7 @@ The approved contribution, claim-to-evidence map, protocols and result reference
 3. Draft the requested scope. A concise abstract states the result, difficulty, approach, evidence, and applicability. An introduction defines the gap and measurable contributions. Methods expose assumptions and reproduction details. Results identify which claim each comparison tests.
 4. Report the actual validation design, number of runs, meaning of uncertainty intervals, baseline tuning budget, and negative results. Do not replace standard deviation with standard error without explanation.
 5. Organize related work by assumptions and mechanisms, using supplied verified citations. Mark unsupported citations as `[CITATION NEEDED]` and return the gap; bibliography discovery is not part of this writing assignment.
-6. Apply [writing guidance](references/writing-guide.md) and the relevant [checklist](references/checklists.md). Copy a provided venue template only to the assigned artifact location. Do not edit its style files to evade limits. Compile only if the task permits the required local toolchain; otherwise return source and a clear uncompiled status.
+6. Apply [writing guidance](references/writing-guide.md) and the relevant [checklist](references/checklists.md). No LaTeX template is bundled; obtain the current author kit from the venue's official source listed below and copy it only to the assigned artifact location. Do not edit its style files to evade limits. Compile only if the task permits the required local toolchain; otherwise return source and a clear uncompiled status.
 7. Return the draft, claim coverage, unresolved issues, and actual validation/compilation status. Never submit it to a venue automatically.
 
 ## Outputs
@@ -41,6 +41,18 @@ Return to the core with the draft or a blocked status. Do not dispatch other ski
 - [Venue checklists](references/checklists.md)
 - [Reviewer criteria](references/reviewer-guidelines.md)
 - [Source attribution](references/sources.md)
-- [Template usage](templates/README.md)
+
+## Venue Templates (External)
+
+Download the current author kit from the official source before formatting; page limits and style files change every year, and no template is redistributed with this skill.
+
+- ICML: https://icml.cc/Conferences/2026/AuthorInstructions
+- ICLR: https://github.com/ICLR/Master-Template
+- NeurIPS: https://neurips.cc/
+- ACL: https://github.com/acl-org/acl-style-files
+- AAAI: https://aaai.org/authorkit26/
+- COLM: https://github.com/COLM-org/Template
+
+Retrieving a template requires the core's authorization for external access. A missing template or toolchain is a blocker returned to the core, not a reason to install packages, pick another venue, or redirect the task.
 
 These documents refine writing technique only. Their historical examples do not authorize external setup, extra research, or changes to the assignment.

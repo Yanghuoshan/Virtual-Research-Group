@@ -332,16 +332,15 @@ If applicable:
 
 ## Template Locations
 
-All ML/AI conference templates are in the `templates/` directory:
+No LaTeX templates are bundled with this skill. Download the current author kit from the venue's official source before formatting, because page limits and style files change every year:
 
-```
-templates/
-├── icml2026/       # ICML 2026 official
-├── iclr2026/       # ICLR 2026 official
-├── neurips2025/    # NeurIPS 2025
-├── acl/            # ACL style files
-├── aaai2026/       # AAAI 2026
-└── colm2025/       # COLM 2025
-```
+| Conference | Official source |
+|---|---|
+| ICML | https://icml.cc/Conferences/2026/AuthorInstructions |
+| ICLR | https://github.com/ICLR/Master-Template |
+| NeurIPS | https://neurips.cc/ |
+| ACL | https://github.com/acl-org/acl-style-files |
+| AAAI | https://aaai.org/authorkit26/ |
+| COLM | https://github.com/COLM-org/Template |
 
 **Systems conference templates** are outside this package; report a missing target template to the core rather than selecting another skill.

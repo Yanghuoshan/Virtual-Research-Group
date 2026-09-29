@@ -1,3 +1,7 @@
+# Metadata only. This repository is a skill bundle, not an importable Python
+# package: there is no module to build and `pip install .` is not supported.
+# Install by cloning into your agent's skills directory; see README.md.
+
 [project]
 name = "general-ai-research-framework"
 version = "0.4.0"

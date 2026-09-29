@@ -28,6 +28,56 @@ The 13 direct entries cover:
 
 These are focused methods, not universal training pipelines. A graph evaluator does not choose or train graph models. A writer does not commission experiments. Missing capabilities return to the core. Detailed references and templates remain inside their owning skill.
 
+## Install
+
+This repository is a directory of skill documents, not a Python package. Install it by cloning it into the skills directory of the agent you use.
+
+### Manual install
+
+| Target | Command |
+|---|---|
+| Claude Code, user level | `git clone <repo-url> ~/.claude/skills/general-ai-research` |
+| Claude Code, project level | `mkdir -p .claude/skills && git clone <repo-url> .claude/skills/general-ai-research` |
+| CodeBuddy, user level | `git clone <repo-url> ~/.codebuddy/skills/general-ai-research` |
+| Any other agent | clone into whatever directory that agent documents for user skills |
+
+Requirements: Python 3.10+, standard library only, no build step.
+
+Verify the install:
+
+```bash
+python3 <install-path>/scripts/research.py validate
+python3 -m unittest discover -s <install-path>/tests
+```
+
+The directory name does not have to match the `name` in `SKILL.md`, but keep it stable so updating is just `git pull`. Updating never touches a research project directory.
+
+### Agent-assisted install
+
+Paste the block below into the agent you want to install into; it finds its own skills directory, clones, and verifies.
+
+```text
+Install the "general-ai-research" skill bundle into this agent.
+
+1. Determine this agent's user-level skills directory. For Claude Code it is
+   ~/.claude/skills/; for CodeBuddy it is ~/.codebuddy/skills/; for any other
+   agent use the directory that agent documents for user skills. Ask me before
+   installing at project level instead.
+2. Clone https://github.com/<your-org>/general-ai-research.git into
+   <skills-dir>/general-ai-research. If that directory already exists, run
+   git pull inside it instead. Do not clone anywhere else and do not copy files
+   by hand.
+3. Confirm <skills-dir>/general-ai-research/SKILL.md exists and that its YAML
+   frontmatter name is general-ai-research. Stop and report the path if not.
+4. Run: python3 <skills-dir>/general-ai-research/scripts/research.py validate
+   and report the output verbatim.
+5. Report the installed path and the validate result. Do not create a research
+   project, run a skill, start experiments, modify other skills, install
+   packages, or change agent configuration.
+```
+
+Replace `<your-org>/general-ai-research` with your repository before use.
+
 ## Quick Start
 
 Python 3.10+; standard library only for the helpers. From this directory:
@@ -69,4 +119,8 @@ This version replaces the earlier domain/capability configuration architecture. 
 
 Automatic model execution, automatic state transitions, budget enforcement and a permissions sandbox are not implemented. The core contract remains authoritative even without helper scripts; structural validation cannot prove scientific truth or enforce a model's obedience.
 
-Reused skill entries have been rewritten as specialists; references and assets retain provenance. Do not claim the adapted entries are unchanged upstream copies. Historical examples and license limitations remain; see [third-party notices](THIRD_PARTY_NOTICES.md). No experiment, schedule, git commit, or host installation is part of this refactor.
+Reused skill entries have been rewritten as specialists; references retain provenance. Do not claim the adapted entries are unchanged upstream copies. No conference LaTeX templates are bundled any more; download the current author kit from the venue's official source listed in the writing skills. Historical examples and license limitations remain; see [third-party notices](THIRD_PARTY_NOTICES.md). No experiment, schedule, git commit, or host installation is part of this refactor.
+
+## License
+
+First-party content is MIT licensed; see [LICENSE](LICENSE). Adapted upstream material keeps its own attribution and terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
