@@ -142,6 +142,8 @@ When the core itself changes session, transfer the state revision, tasks, active
 
 ## Sequential Roles and Models
 
+Choose the role by asking which judgment the task requires: what to study, how to test, what happened, what it means, how to present it, or where it fails. A role supplies standpoint; the selected skill supplies method. A role carries no skill list, permissions or model, and does not persist across tasks. A role label such as `reviewer` does not prove independence; that requires the task-level `independent_review` flag. Defaults such as `strategist`, `methodologist`, `experimenter`, `analyst`, `writer`, `reviewer` and `critic`, with selection rules and worked examples, are in [role guidance](references/role-guidance.md).
+
 Roles describe responsibilities; skills provide methods; models and sessions are execution choices. None is a substitute for a task or phase. Specialists only return work, checks and blockers. Only the core accepts outputs, updates global findings, decides a retry, and judges phase exit criteria.
 
 The optional helper now performs explicit core state operations (`task`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` remains read-only. No command creates a model session, starts experiments, enforces hard budgets, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).

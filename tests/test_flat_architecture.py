@@ -60,6 +60,21 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, detail)
 
+    def test_role_selection_guidance_is_available_without_a_role_registry(self):
+        core = (ROOT / 'SKILL.md').read_text()
+        self.assertIn('references/role-guidance.md', core)
+        self.assertIn('which judgment the task requires', core)
+        guidance = (ROOT / 'references/role-guidance.md').read_text()
+        for fragment in ('| Role |', 'strategist', 'methodologist', 'analyst', 'critic',
+                         'A role carries no skill list', 'does not prove independence'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, guidance)
+        self.initialize()
+        task = TOOL.create_task(ROOT, self.project, 't2', 'Explain an unexpected gain', activity='analysis',
+                                skill='graph-evaluation', role='critic', acceptance='List rival explanations')
+        self.assertEqual(task['role'], 'critic')
+        self.assertNotIn('skills', task)
+
     def test_phase_contract_stays_machine_readable_in_core(self):
         text = (ROOT / 'SKILL.md').read_text()
         for marker in ('<!-- phase-contract:start -->', '<!-- phase-contract:end -->',
