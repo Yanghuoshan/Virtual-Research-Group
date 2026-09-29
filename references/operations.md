@@ -26,7 +26,7 @@ python3 scripts/research.py task --project ./projects/study --task scope-1 --obj
 python3 scripts/research.py task --project ./projects/study --task scope-2 --objective "Verify the supplied foundational references" --activity analysis --skill citation-verification --role reader --acceptance "Resolve source identities and mark unsupported claims"
 ```
 
-Both tasks are planned in `scope`; no stage change occurs. Likewise create as many ideation tasks as needed after a separate phase decision. A task's objective, activity, skill, role and acceptance criteria are its fixed contract. New objectives require new IDs; local rework keeps the existing ID.
+Both tasks are planned in `scope`; no phase change occurs. Likewise create as many ideation tasks as needed after a separate phase decision. A task's objective, activity, skill, role and acceptance criteria are its fixed contract. New objectives require new IDs; local rework keeps the existing ID.
 
 Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires authorization, research mode, evaluation and frozen protocol; `conclusions` requires reviewed evidence. These gates apply in every project phase. The core is responsible for honest classification and all additional tool/service permissions.
 

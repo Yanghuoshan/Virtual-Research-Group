@@ -77,7 +77,7 @@ Initialize only the four root documents; create other directories when a task ne
 4. Register a task with an objective, explicit activity, one applicable skill, role and acceptance criterion. Select an existing planned task instead when continuing the same contract. No suitable skill means report the gap; do not pretend an evaluator also trains models.
 5. Prepare an assignment for that task: select model/session using the Session Lifecycle policy, provide evidence and fresh output paths, then invoke the host. Record the actual receipt before work. Inspect the returned submission and separately decide completion or rework. Neither assignment nor task completion advances phase.
 
-Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry.
+Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
 
 ## Research Phases
 
@@ -110,7 +110,7 @@ At task creation, the core explicitly classifies the actual work, never inferrin
 
 These three activity values are safety declarations, not new phases or a skill router. The helper cannot detect dishonest labeling; the core must inspect the objective, permitted tools and actual operations. Analysis that needs external retrieval still requires service authorization. Theoretical validation uses proof obligations and independent checking rather than assuming training or GPUs.
 
-Writing research conclusions requires a verified audit JSON binding `findings.md`, the current protocol, and raw evidence under `experiments/` or `data/`. Completion additionally requires a passed final review binding current findings and the manuscript. Audit `subjects` are path/hash pairs. Changed subjects invalidate approval. Specialists may produce audit proposals; only the core sets approval state after checking their coverage and reasoning. Hash checks cannot prove truth or detect omitted dependencies.
+Writing research conclusions requires a verified audit JSON binding `findings.md`, the current protocol, and raw evidence under `experiments/` or `data/`. **Project completion** (the separate `phase → complete` decision) additionally requires a passed final review binding current findings and the manuscript; accepting an individual task's output never triggers that check. Audit `subjects` are path/hash pairs. Changed subjects invalidate approval. Specialists may produce audit proposals; only the core sets approval state after checking their coverage and reasoning. Hash checks cannot prove truth or detect omitted dependencies.
 
 ## Session Lifecycle
 
@@ -118,11 +118,11 @@ Only the core creates, resumes, retires, or replaces sessions. Session choice is
 
 | Mode | Appropriate conditions | Required action |
 |---|---|---|
-| `fresh` | Substantial new work; changed model or responsibility; independent review; context overload or stale assumptions | Request a separate host session carrying only the task brief and relevant evidence |
+| `fresh` | Substantial new work; changed model or responsibility; independent review; session overload or stale assumptions | Request a separate host session carrying only the task brief and relevant evidence |
 | `reuse` | Local continuation or a compatible related task, with the same skill, role and actual model; useful valid history and no independence requirement | Verify the previous accepted assignment, explain why reuse helps, and resume its host-provided session ID |
 | `current` | A small bounded task, or a core-approved fallback when isolation is not needed | Explain the exception; do not claim a role prompt creates an isolated session |
 
-Detect context overload from actual symptoms: logs crowding out relevant inputs, repeatedly forgotten constraints, or invalidated hypotheses persisting. Do not invent token counts or a universal reset threshold. A phase label alone never forces session replacement. A changed task objective requires a new task contract, but does not necessarily require discarding a compatible idle session.
+Detect session overload from actual symptoms: logs crowding out relevant inputs, repeatedly forgotten constraints, or invalidated hypotheses persisting. Do not invent token counts or a universal reset threshold. A phase label alone never forces session replacement. A changed task objective requires a new task contract, but does not necessarily require discarding a compatible idle session.
 
 Independent review is a task-level requirement and always uses fresh execution, even on retry. Exclude the author's drafting conversation and self-justification; retain artifacts, raw evidence, known limitations and neutral criteria. A different session reduces carryover but does not prove scientific independence or truth. The same model may be appropriate in a new session.
 

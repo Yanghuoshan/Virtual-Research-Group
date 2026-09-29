@@ -283,6 +283,17 @@ class TaskLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'incompatible'):
             self.accept(packet)
 
+    def test_reused_session_cannot_claim_fresh_isolation(self):
+        self.create()
+        self.accept(self.packet())
+        self.update('submitted', evidence=[self.output()], executor_stopped=True)
+        self.update('completed')
+        self.create('t2')
+        packet = self.packet('t2', outputs=['hypotheses/t2.md'], session_mode='reuse',
+                             session_reason='Related task with compatible history', resume_session_id='host:s1')
+        with self.assertRaises(ValueError):
+            self.accept(packet, session_isolation_verified=True)
+
     def test_legacy_state_is_not_silently_reinterpreted(self):
         self.create()
         state = self.state()

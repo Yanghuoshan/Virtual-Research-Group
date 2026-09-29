@@ -127,7 +127,7 @@ class FrameworkTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.handoff(evidence=[value])
 
-    def test_unexpected_stage_jump_rejected(self):
+    def test_unexpected_phase_jump_rejected(self):
         self.initialize()
         with self.assertRaises(ValueError):
             self.tool.transition_phase(ROOT, self.project, 'write', 'Skip phases', ['research-brief.md'])
@@ -185,7 +185,9 @@ class FrameworkTests(unittest.TestCase):
     def test_paused_or_busy_project_cannot_handoff(self):
         self.initialize()
         original = self.state()
-        for changed in (dict(original, status='paused'), dict(original, active_task={'packet_id': 'pending'})):
+        busy = dict(original, active_task='t1')
+        busy['tasks']['t1']['status'] = 'running'
+        for changed in (dict(original, status='paused'), busy):
             self.save(changed)
             with self.assertRaises(ValueError):
                 self.handoff()

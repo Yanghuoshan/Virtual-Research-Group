@@ -8,7 +8,7 @@ import unittest
 from test_framework import ROOT, load_tool, register_task
 
 
-class ContextPolicyTests(unittest.TestCase):
+class SessionPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tool = load_tool()
         self.temp = tempfile.TemporaryDirectory(dir=ROOT)
@@ -25,20 +25,20 @@ class ContextPolicyTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def session_options(self, **changes):
-        self.assertTrue(callable(getattr(self.tool, 'session_request', None)), 'Context request validation is missing')
+        self.assertTrue(callable(getattr(self.tool, 'session_request', None)), 'Session request validation is missing')
         options = dict(mode='fresh', reason=None, resume_session_id=None, independent_review=False)
         options.update(changes)
         return self.tool.session_request(**options)
 
-    def test_core_has_explicit_context_lifecycle(self):
+    def test_core_has_explicit_session_lifecycle(self):
         text = (ROOT / 'SKILL.md').read_text()
         for requirement in ('## Session Lifecycle', 'fresh', 'reuse', 'current', 'independent review',
-                            'context overload', 'Do not forward the full conversation', 'No silent fallback',
+                            'session overload', 'Do not forward the full conversation', 'No silent fallback',
                             'host-provided session ID'):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, text)
 
-    def test_default_requests_fresh_context_without_claiming_it_exists(self):
+    def test_default_requests_fresh_session_without_claiming_it_exists(self):
         before = {str(p.relative_to(self.project)): p.read_bytes()
                   for p in self.project.rglob('*') if p.is_file()}
         packet = self.packet()
@@ -53,17 +53,17 @@ class ContextPolicyTests(unittest.TestCase):
         self.assertEqual(before, {str(p.relative_to(self.project)): p.read_bytes()
                                   for p in self.project.rglob('*') if p.is_file()})
 
-    def test_fresh_context_records_core_reason(self):
-        context = self.session_options(reason='New specialist role requires separate working history')
-        self.assertEqual(context['reason'], 'New specialist role requires separate working history')
-        self.assertEqual(context['mode'], 'fresh')
+    def test_fresh_session_records_core_reason(self):
+        session = self.session_options(reason='New specialist role requires separate working history')
+        self.assertEqual(session['reason'], 'New specialist role requires separate working history')
+        self.assertEqual(session['mode'], 'fresh')
 
-    def test_current_context_requires_explicit_reason(self):
+    def test_current_session_requires_explicit_reason(self):
         for reason in (None, '', '   ', False):
             with self.subTest(reason=reason), self.assertRaises(ValueError):
                 self.session_options(mode='current', reason=reason)
 
-    def test_small_task_can_explicitly_use_current_context(self):
+    def test_small_task_can_explicitly_use_current_session(self):
         packet = self.packet(session_mode='current', session_reason='Small bounded task; no independence needed')
         self.assertEqual(packet['session']['mode'], 'current')
         self.assertIsNone(packet['session']['resume_session_id'])
@@ -85,13 +85,13 @@ class ContextPolicyTests(unittest.TestCase):
     def test_resume_identifier_is_for_reuse_only(self):
         for mode in ('fresh', 'current'):
             with self.subTest(mode=mode), self.assertRaises(ValueError):
-                self.session_options(mode=mode, reason='Explicit decision', resume_session_id='old-context')
+                self.session_options(mode=mode, reason='Explicit decision', resume_session_id='old-session')
 
-    def test_independent_review_requires_fresh_context(self):
+    def test_independent_review_requires_fresh_session(self):
         for mode in ('reuse', 'current'):
             options = dict(mode=mode, reason='Review', independent_review=True)
             if mode == 'reuse':
-                options['resume_session_id'] = 'author-context'
+                options['resume_session_id'] = 'author-session'
             with self.subTest(mode=mode), self.assertRaises(ValueError):
                 self.session_options(**options)
         request = self.session_options(independent_review=True, reason='Independent assessment')
@@ -113,7 +113,7 @@ class ContextPolicyTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.session_options(independent_review=value)
 
-    def test_context_bootstrap_is_bounded(self):
+    def test_session_bootstrap_is_bounded(self):
         packet = self.packet()
         self.assertIn('session', packet)
         self.assertEqual(packet['session']['bootstrap_policy'], 'selected-skill-and-task-evidence-only')
@@ -122,7 +122,7 @@ class ContextPolicyTests(unittest.TestCase):
         self.assertNotIn('conversation', packet)
         self.assertNotIn('skills', packet)
 
-    def test_receipt_distinguishes_requested_and_actual_context(self):
+    def test_receipt_distinguishes_requested_and_actual_session(self):
         receipt = json.loads((ROOT / 'templates/handoff-receipt.json').read_text())
         for field in ('actual_session_mode', 'actual_session_id', 'session_isolation_verified'):
             self.assertIn(field, receipt)
@@ -144,7 +144,7 @@ class ContextPolicyTests(unittest.TestCase):
         self.assertEqual(packet['session']['mode'], 'reuse')
         self.assertEqual(packet['session']['resume_session_id'], 'host:session-17')
 
-    def test_cli_independent_review_cannot_reuse_context(self):
+    def test_cli_independent_review_cannot_reuse_session(self):
         args = ['handoff', '--project', str(self.project), '--task', 'review', '--model', 'current',
                 '--summary', 'Review hypotheses', '--evidence', 'research-brief.md',
                 '--outputs', 'reviews/hypotheses.md', '--session', 'current', '--session-reason', 'Already open']

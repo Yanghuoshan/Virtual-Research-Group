@@ -385,6 +385,7 @@ def accept_assignment(root, project, packet, receipt):
     elif session['mode'] == 'current':
         require(not receipt['session_isolation_verified'], 'Current session cannot claim fresh isolation')
     else:
+        require(not receipt['session_isolation_verified'], 'A reused session cannot claim fresh isolation')
         require(actual_id == session['resume_session_id'], 'Resume session identity mismatch')
         previous = [a for a in history if a['receipt']['actual_session_id'] == actual_id]
         require(previous, 'No accepted assignment records this host session')
