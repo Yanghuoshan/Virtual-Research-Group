@@ -45,33 +45,29 @@ Keep the framework source separate from each research project's runtime director
 
 ```text
 {project}/
-├── research-brief.md                 # Core: question, scope, constraints
-├── research-state.json               # Core: phase, revision, authorization, evidence status
-├── research-log.md                   # Core: append-only decisions and actual execution records
-├── findings.md                       # Core: accepted claim-to-evidence narrative
-├── literature/                      # Sourced paper notes and verified bibliography
-├── hypotheses/                      # Candidate hypotheses and ranking proposals
-├── experiments/
+├── research-brief.md          # Core: question, scope, constraints
+├── research-state.json        # Core: phase, tasks, revision, authorization, audits
+├── research-log.md            # Core: scientific reasoning narrative
+├── findings.md                # Core: accepted claim-to-evidence narrative
+├── literature/                # Sourced notes and verified bibliography
+├── hypotheses/                # Candidate hypotheses and ranking proposals
+├── experiments/               # One directory per hypothesis
 │   └── {hypothesis-id}/
-│       ├── protocol.md              # Frozen design accepted by the core
-│       └── runs/
+│       ├── protocol.md        # Frozen design accepted by the core
+│       └── runs/              # One directory per attempt
 │           └── {run-id}/
-│               ├── code/            # Run-specific code or references to versioned src/
-│               ├── results/         # Raw measurements, proof certificates, logs
-│               └── analysis.md      # Local interpretation, uncertainty, failures
-├── src/                             # Reusable, versioned project code
-├── data/                            # Data manifests, compact inputs and shared derived data
-├── paper/                           # Versioned manuscripts, not fabricated results
-├── reports/                         # Figures, talks, planning deliverables
-├── reviews/                         # Version-bound audits and specialist review reports
-└── handoffs/                        # Core: requests, receipts and acceptance records
+│               ├── code/      # Run-specific code or versioned src/ reference
+│               ├── results/   # Raw measurements, certificates, logs
+│               └── analysis.md  # Local interpretation and failures
+├── src/                       # Reusable, versioned project code
+├── data/                      # Data manifests and compact shared inputs
+├── paper/                     # Versioned manuscripts
+├── reports/                   # Figures, talks and planning deliverables
+├── reviews/                   # Version-bound audits and review reports
+└── handoffs/                  # Core: packets and receipts
 ```
 
-Initialize only the four root documents; create other directories when needed. `scripts/research.py init` is an optional convenience implementing this contract, not a prerequisite to reasoning. It refuses existing targets. Resume an existing project instead of reinitializing it.
-
-Use stable hypothesis IDs such as `H1` and unique run IDs such as `run-001`. Record the hypothesis ID, protocol path/hash, data version, code revision, configuration, seeds, resource usage, and result locations in each run. Distinguish a hypothesis from its repeated runs. Freeze `protocol.md` before execution; a changed design needs a new versioned hypothesis/protocol and re-review, never an overwritten history. The core may request a draft protocol, then accept and freeze it.
-
-Keep reusable code in `src/` and run-specific code in `code/`; pin the actual code version used. Preserve negative runs, errors, and exploratory discoveries. Never overwrite raw evidence to match a manuscript. Put large datasets/checkpoints in user-approved external storage; record their URI, checksum, version and access conditions in `data/`, rather than copying them into the repository. Local audit manifests hash those references; the core must separately verify the external artifacts.
+Initialize only the four root documents; create other directories when a task needs them. Detailed organization rules, including hypothesis/run records, protocol freezing, evidence preservation and external artifact handling, are in [workspace](references/workspace.md).
 
 ## Direct Skill Selection
 
@@ -100,16 +96,7 @@ Every working phase supports multiple tasks, including scope and ideation. The c
 | complete | scope | Preserve an accepted research outcome | Reopening requires a new core scope decision |
 <!-- phase-contract:end -->
 
-Example scope tasks: clarify the question, check existing answers, assess data availability, and propose success criteria. Example ideation tasks: generate candidates, reformulate the problem, verify novelty evidence, critique mechanisms, and compare validation costs. These are optional examples, not a fixed checklist. Each has a distinct artifact and acceptance criterion; ordinary file reads or clarification turns are steps within a task.
-
-A citation check during writing or a split audit during execution is another task, not a project-wide phase change. Tasks may remain planned or blocked across a justified phase change; their creation phase is provenance, not a routing restriction. Stop the active executor before changing phase. To close research, resolve or explicitly cancel all open tasks and recheck both evidence and final-review audits. Planning-only work may stop as paused/stopped without claiming completed research.
-
-- **Scope and ideation:** identify the research question, verify literature, separate evidence from novelty conjectures, and rank falsifiable hypotheses. Do not assert novelty from search absence alone.
-- **Design:** define the primary measure or proof obligation, baseline or known bound, validation design, uncertainty treatment, failure criteria, and budget. Evidence standards are common core rules; specialists contribute domain-specific checks.
-- **Execution / inner loop:** accept a frozen protocol and required authorization, execute a bounded experiment or proof check, preserve raw outputs, and compare with the protocol. Missing executors are capability gaps, not permission to invent results.
-- **Synthesis / outer loop:** inspect convergence or validity, leakage, baseline reproduction, uncertainty, and counterevidence. Ask what a result explains. The core alone promotes checked findings to `findings.md` and chooses deepen, broaden, pivot, or conclude.
-- **Writing and review:** provide a verified claim set and target audience to the writer. Seek critical review without letting reviewers schedule revisions. The core decides whether more work is necessary.
-- **Stop:** planning can end with a proposal or outline without passing through experimental writing gates. Set `status=paused` or `stopped` and document remaining gaps. Do not call an unverified draft a completed research result. No recurring loop is created by default.
+The table is the machine-readable contract; the helper parses it from this file. Phase meaning, example tasks and transition judgment are in [phase guidance](references/phase-guidance.md). Phases describe goals and exit criteria; they never select a skill, role, model or task.
 
 ## Evidence and Acceptance Gates
 

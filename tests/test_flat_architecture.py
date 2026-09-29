@@ -50,9 +50,27 @@ class FlatArchitectureTests(unittest.TestCase):
     def test_core_defines_workspace_and_decision_authority(self):
         text = (ROOT / 'SKILL.md').read_text()
         for fragment in ('## Research Workspace', '## Core Decision Authority',
-                         '## Direct Skill Selection', '{hypothesis-id}', '{run-id}',
-                         'protocol.md', 'results/', 'analysis.md', 'Only the core'):
+                         '## Direct Skill Selection', '{hypothesis-id}', 'runs/', '{run-id}',
+                         'protocol.md', 'Initialize only the four root documents',
+                         'references/workspace.md', 'Only the core'):
             self.assertIn(fragment, text)
+        detail = (ROOT / 'references/workspace.md').read_text()
+        for fragment in ('runs/{run-id}/', 'code/', 'results/', 'analysis.md',
+                         'Freeze `protocol.md`', 'external storage'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, detail)
+
+    def test_phase_contract_stays_machine_readable_in_core(self):
+        text = (ROOT / 'SKILL.md').read_text()
+        for marker in ('<!-- phase-contract:start -->', '<!-- phase-contract:end -->',
+                       '| Phase | Next | Goal | Exit criteria |', 'references/phase-guidance.md'):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+        self.assertEqual(TOOL.core_phases(ROOT)['scope']['next'], ['ideation'])
+        guidance = (ROOT / 'references/phase-guidance.md').read_text()
+        for fragment in ('Scope and ideation', 'Synthesis / outer loop', 'Stop:', 'Cross-Phase Tasks'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, guidance)
 
     def test_entry_point_stays_within_reading_budget(self):
         notes = TOOL.budget_notes(ROOT)
