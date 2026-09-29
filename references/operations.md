@@ -30,6 +30,8 @@ Both tasks are planned in `scope`; no phase change occurs. Likewise create as ma
 
 Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires authorization, research mode, evaluation and frozen protocol; `conclusions` requires reviewed evidence. These gates apply in every project phase. The core is responsible for honest classification and all additional tool/service permissions.
 
+External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective, for example "use the literature search server, `search` and `fetch` only", and record stable project-wide channels in `allowed_tools`. Leaving the project network or using paid access requires `external_services` authorization; the helper does not enforce this flag. Preserve raw responses with source URI and retrieval date rather than only a summary.
+
 ## Assign Without Changing Phase
 
 ```bash

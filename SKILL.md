@@ -77,6 +77,18 @@ Initialize only the four root documents; create other directories when a task ne
 4. Register a task with an objective, explicit activity, one applicable skill, role and acceptance criterion. Select an existing planned task instead when continuing the same contract. No suitable skill means report the gap; do not pretend an evaluator also trains models.
 5. Prepare an assignment for that task: select model/session using the Session Lifecycle policy, provide evidence and fresh output paths, then invoke the host. Record the actual receipt before work. Inspect the returned submission and separately decide completion or rework. Neither assignment nor task completion advances phase.
 
+## External Tools and MCP Servers
+
+External capabilities such as literature search, dataset lookup or experiment analysis offered through MCP servers are **channels assigned by the core**, never choices made by a specialist.
+
+- Declare the permitted servers and tool names in the task objective, or in the `allowed_tools` field of `authorized_tools` below when the project fixes them in advance.
+- Network or paid access requires `external_services` authorization from the user. Analysis that performs retrieval still needs it; the helper does not consume this flag, so the core must check it.
+- A skill may use only the assigned channel and tools. Installing servers, switching providers, purchasing access or broadening a search are blockers returned to the core.
+- Record provenance for external results: source URI, retrieval date, and a digest or identifier where available. Preserve raw responses under the assigned output path instead of only a summary.
+- An external response is metadata evidence, not a scientific endorsement. Treat coverage limits and version drift as recorded limitations, and re-verify before a conclusion depends on it.
+
+`allowed_tools` is a record of the project's permitted external channels. It is advisory: no helper currently validates tool names or blocks unlisted calls, so the boundary is enforced by the core's assignment and review, not by the script.
+
 Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
 
 ## Research Phases
@@ -101,6 +113,8 @@ The table is the machine-readable contract; the helper parses it from this file.
 ## Evidence and Acceptance Gates
 
 All assignments require existing nonempty input evidence, nonempty rationale and acceptance criteria, legal project-local output paths, active state, and no unresolved blockers. Do not permit specialists to overwrite inputs, existing outputs, global records, or the frozen protocol. Use new versioned outputs for revisions. Request new output targets, including directories; pre-existing directories or symlink targets are not an acceptable output scope.
+
+External tool use follows the [external tools policy](#external-tools-and-mcp-servers): declare permitted servers/tools, confirm `external_services` authorization when access leaves the project, and preserve raw responses with provenance.
 
 At task creation, the core explicitly classifies the actual work, never inferring permission from phase, role, skill name or output directory:
 

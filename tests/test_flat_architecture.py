@@ -75,6 +75,21 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual(task['role'], 'critic')
         self.assertNotIn('skills', task)
 
+    def test_external_tool_policy_is_recorded_but_not_enforced(self):
+        core = (ROOT / 'SKILL.md').read_text()
+        for fragment in ('## External Tools and MCP Servers', 'assigned by the core',
+                         'external_services', 'allowed_tools'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, core)
+        template = json.loads((ROOT / 'templates/research-state.json').read_text())
+        self.assertEqual(template['allowed_tools'], [])
+        self.initialize()
+        state = self.state()
+        self.assertEqual(state['allowed_tools'], [])
+        state['allowed_tools'] = ['literature-search:search', 'literature-search:fetch']
+        self.save(state)
+        self.assertEqual(self.state()['allowed_tools'], ['literature-search:search', 'literature-search:fetch'])
+
     def test_model_selection_guidance_is_available_without_a_model_registry(self):
         core = (ROOT / 'SKILL.md').read_text()
         self.assertIn('references/model-guidance.md', core)

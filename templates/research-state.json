@@ -10,6 +10,7 @@
   "revision": 0,
   "mode": "planning",
   "authorization": {"experiments": false, "external_services": false, "recurring": false, "git_commits": false},
+  "allowed_tools": [],
   "budget": {"max_cost": null, "max_wall_minutes": null, "max_experiments": null},
   "evaluation": {"primary_measure": null, "baseline": null, "validation_plan": null, "uncertainty_plan": null},
   "protocol": {"path": null, "sha256": null},
