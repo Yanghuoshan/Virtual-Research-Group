@@ -143,6 +143,50 @@ class TaskLifecycleTests(unittest.TestCase):
             self.tool.record_reflection(ROOT, self.project, 'run', 'reports/reflection-v1.json',
                                         'Compare with predeclared metric')
 
+    def test_completion_records_a_structured_verdict(self):
+        self.create('t1')
+        self.accept(self.packet())
+        self.update('submitted', evidence=[self.output()], executor_stopped=True)
+        with self.assertRaisesRegex(ValueError, 'Verdicts apply to completion'):
+            self.update('submitted', verdict='met')
+        with self.assertRaises(ValueError):
+            self.update('completed', verdict='exceeded')
+        state = self.update('completed', verdict='partially-met')
+        event = state['history'][-1]
+        self.assertEqual(event['action'], 'task-completed')
+        self.assertEqual(event['verdict'], 'partially-met')
+
+    def test_reflection_covers_analysis_tasks(self):
+        self.create('review')
+        self.accept(self.packet('review', outputs=['literature/review-v1.md']))
+        self.update('submitted', task_id='review', evidence=[self.output('literature/review-v1.md')],
+                    executor_stopped=True)
+        self.update('completed', task_id='review')
+        record = {'observation': 'Coverage is thinner than expected for the stated question',
+                  'protocol_check': 'Search plan followed as recorded',
+                  'counterevidence': 'Nothing in the supplied corpus contradicts the map',
+                  'alternatives': 'A different query formulation',
+                  'next_options': ['Broaden the search terms'],
+                  'prediction': 'A broader query formulation doubles the yield',
+                  'decision': 'Test the broader formulation',
+                  'evidence': [{'path': 'literature/review-v1.md',
+                                'sha256': self.tool.digest(self.project / 'literature/review-v1.md')}]}
+        (self.project / 'reports').mkdir(parents=True, exist_ok=True)
+        (self.project / 'reports/reflection-v1.json').write_text(json.dumps(record))
+        state = self.tool.record_reflection(ROOT, self.project, 'review', 'reports/reflection-v1.json',
+                                            'Compare with the prediction before the follow-up')
+        self.assertEqual(state['reflections'][0]['task_id'], 'review')
+        # A later completed analysis task reviews the prediction.
+        self.create('followup')
+        self.accept(self.packet('followup', outputs=['literature/followup-v1.md']), session_id='host:s2')
+        self.update('submitted', task_id='followup', evidence=[self.output('literature/followup-v1.md')],
+                    executor_stopped=True)
+        self.update('completed', task_id='followup')
+        state = self.tool.review_reflection(ROOT, self.project, 'reports/reflection-v1.json', 'followup',
+                                            'Prediction consistent with the broader search',
+                                            assessment='supported')
+        self.assertEqual(state['reflections'][0]['followup']['assessment'], 'supported')
+
     def test_host_job_must_be_reconciled_before_submission(self):
         self.create()
         self.accept(self.packet())

@@ -39,6 +39,7 @@ READ_WORDS = re.compile(r'\b(read|get|search|fetch|list|query|select|lookup|desc
 FREE_TEXT_ARGS = {'sql', 'query', 'command', 'commands', 'cmd', 'body', 'script', 'code',
                   'statement', 'payload', 'request', 'prompt', 'expression'}
 SEMANTICS = ('read', 'write', 'unknown')
+COMPLETION_VERDICTS = ('met', 'partially-met')
 
 
 def require(condition, message):
@@ -58,6 +59,21 @@ def iso_timestamp(value, label):
 def packet_digest(packet):
     return hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                       separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
+
+
+def preflight_token(task_id, packet_id, server, operation, scope, classification):
+    """Deterministic digest binding one checked external call request.
+
+    The host must carry the token check-tool returned and record it with
+    tool-call, so a logged call can be reconciled against the exact facts that
+    were checked. It binds the checked facts to each other; it cannot prove the
+    host's honesty, only make the audit trail consistent.
+    """
+    payload = json.dumps({'task_id': task_id, 'packet_id': packet_id, 'server': server,
+                          'operation': operation, 'scope': scope, 'classification': classification},
+                         sort_keys=True, ensure_ascii=False, separators=(',', ':'),
+                         allow_nan=False).encode('utf-8')
+    return hashlib.sha256(b'research-preflight:' + payload).hexdigest()
 
 
 def classify_operation(name, description, annotations, args):
@@ -917,10 +933,13 @@ def watch(root, project, hours=2):
             'note': 'Read only; host and core must reconcile real job status'}
 
 
-def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False):
+def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False, verdict=None):
     state, fingerprint = open_project(root, project)
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     require(nonempty(reason), 'Core decision reason is required')
+    if verdict is not None:
+        require(status == 'completed' and verdict in COMPLETION_VERDICTS,
+                f'Verdicts apply to completion only; use one of {", ".join(COMPLETION_VERDICTS)}')
     task = state['tasks'][task_id]
     transitions = {'planned': ('cancelled',), 'running': ('blocked', 'submitted', 'cancelled'),
                    'blocked': ('planned', 'cancelled'), 'submitted': ('planned', 'completed', 'cancelled')}
@@ -971,7 +990,8 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
     return save_decision(project, state, fingerprint, {'action': 'task-' + status, 'task_id': task_id,
                                                       'reason': reason.strip(), 'evidence': records,
                                                       'auto_resolved': auto_resolved,
-                                                      'declared_already_closed': declared_already_closed})
+                                                      'declared_already_closed': declared_already_closed,
+                                                      'verdict': verdict})
 
 
 def set_goal(root, project, path, reason):
@@ -1090,7 +1110,27 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
         require(attempts <= grant['max_runs'], 'Research run limit exhausted')
     return {'allowed': True, 'task_id': task_id, 'packet_id': packet_id, 'grant': grant['evidence'],
             'operation_semantics': semantics,
-            'needs_confirmation': semantics['classification'] == 'unknown'}
+            'needs_confirmation': semantics['classification'] == 'unknown',
+            'preflight_token': preflight_token(task_id, packet_id, server, operation, scope,
+                                               semantics['classification'])}
+
+
+def record_tool_call(root, project, *, task_id, packet_id, server, operation, scope, token):
+    """Record one external tool call against the preflight token check-tool issued.
+
+    The call is re-validated exactly as at preflight; the recorded token binds the
+    logged call to the checked facts, so the audit trail can be reconciled later.
+    """
+    result = check_tool(root, project, task_id=task_id, packet_id=packet_id,
+                        server=server, operation=operation, scope=scope)
+    expected = preflight_token(task_id, packet_id, server, operation, scope,
+                               result['operation_semantics']['classification'])
+    require(token == expected, 'Preflight token mismatch; run check-tool and carry the returned token')
+    state, fingerprint = open_project(root, project)
+    return save_decision(project, state, fingerprint,
+                         {'action': 'tool-call-recorded', 'task_id': task_id, 'packet_id': packet_id,
+                          'server': server, 'operation': operation, 'scope': scope, 'token': token,
+                          'reason': f'{server}/{operation} recorded against its preflight token'})
 
 
 def set_evaluation(root, project, *, primary_measure, baseline, validation_plan, uncertainty_plan, reason):
@@ -1293,8 +1333,8 @@ def set_project_status(root, project, *, status, reason):
 def record_reflection(root, project, task_id, path, reason):
     state, fingerprint = open_project(root, project)
     task = state['tasks'].get(task_id)
-    require(task and task['activity'] == 'experiment' and task['status'] in ('completed', 'blocked'),
-            'Reflection requires a finished or blocked experiment')
+    require(task and task['status'] in ('completed', 'blocked'),
+            'Reflection requires a finished or blocked task')
     require(nonempty(reason), 'Reflection needs a core decision reason')
     record = evidence_record(project, path)
     require(record['path'].startswith('reports/'), 'Reflection must be a versioned report')
@@ -1327,11 +1367,11 @@ def review_reflection(root, project, path, followup_task, reason, *, assessment)
     require(ref and ref['followup'] is None, 'Unknown or reviewed reflection')
     verify_reference(project, ref['artifact'], 'Reflection')
     task = state['tasks'].get(followup_task)
-    require(followup_task != ref['task_id'] and task and task['status'] == 'completed'
-            and task['activity'] == 'experiment', 'Follow-up must be a different completed experiment')
+    require(followup_task != ref['task_id'] and task and task['status'] == 'completed',
+            'Follow-up must be a different completed task')
     require(any(event.get('action') == 'task-completed' and event.get('task_id') == followup_task
                 and event['revision'] > ref['recorded_revision'] for event in state['history']),
-            'Follow-up experiment must complete after the reflection')
+            'Follow-up task must complete after the reflection')
     require(task['submission'], 'Follow-up requires raw evidence')
     for source in task['submission']:
         verify_reference(project, source, 'Follow-up result')
@@ -1423,6 +1463,9 @@ def main(argv=None):
     tools.add_argument('--operation')
     tools.add_argument('--semantics', choices=('read', 'write'))
     tools.add_argument('--reason')
+    call = commands.add_parser('tool-call', help='Core only: record an external call against its preflight token')
+    for option in ('project', 'task', 'packet', 'server', 'operation', 'scope', 'token'):
+        call.add_argument('--' + option, required=True)
     event = commands.add_parser('host-event', help='Core only: record host job state')
     for option in ('project', 'task', 'job', 'status', 'reason'):
         event.add_argument('--' + option, required=True)
@@ -1462,6 +1505,8 @@ def main(argv=None):
         update.add_argument('--' + name, required=True)
     update.add_argument('--evidence', nargs='*', default=[])
     update.add_argument('--executor-stopped', action='store_true')
+    update.add_argument('--verdict', choices=COMPLETION_VERDICTS,
+                        help='Structured acceptance verdict recorded with a completion')
     phase = commands.add_parser('phase', help='Core only: explicitly change project phase')
     phase.add_argument('--project', required=True, type=Path)
     phase.add_argument('--to', required=True)
@@ -1532,6 +1577,10 @@ def main(argv=None):
         elif args.command == 'check-tool':
             result = check_tool(ROOT, args.project, task_id=args.task, packet_id=args.packet,
                                 server=args.server, operation=args.operation, scope=args.scope)
+        elif args.command == 'tool-call':
+            result = record_tool_call(ROOT, args.project, task_id=args.task, packet_id=args.packet,
+                                      server=args.server, operation=args.operation, scope=args.scope,
+                                      token=args.token)
         elif args.command == 'tools':
             if args.catalog is not None:
                 result = ingest_catalog(ROOT, args.project, args.server, args.catalog,
@@ -1565,7 +1614,7 @@ def main(argv=None):
                                        packet_file=args.packet, receipt_file=args.receipt)
         elif args.command == 'task-status':
             result = update_task(ROOT, args.project, args.task, args.status, args.reason, args.evidence,
-                                 executor_stopped=args.executor_stopped)
+                                 executor_stopped=args.executor_stopped, verdict=args.verdict)
         elif args.command == 'authorize':
             result = authorize(ROOT, args.project, mode=args.mode, reason=args.reason, evidence=args.evidence,
                                services=args.services, operations=args.operations, scope=args.scope,

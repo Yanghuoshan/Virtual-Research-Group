@@ -157,6 +157,36 @@ class ToolSemanticsTests(unittest.TestCase):
         self.assertFalse(result['needs_confirmation'])
         self.assertEqual(result['operation_semantics']['classification'], 'read')
 
+    def test_tool_calls_are_recorded_against_preflight_tokens(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.authorize('planning', ['da-data'], ['search_content'])
+        self.tool.create_task(ROOT, self.project, 'scope-1',
+                              'Search da-data search_content in graph-study',
+                              activity='analysis', skill='literature-review', role='analyst',
+                              acceptance='Bounded retrieval with coverage limits',
+                              tools=['da-data:search_content'])
+        packet = self.tool.handoff(ROOT, self.project, 'scope-1', 'Bounded retrieval', ['research-brief.md'],
+                                   model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        result = self.tool.check_tool(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                      server='da-data', operation='search_content', scope='graph-study')
+        token = result['preflight_token']
+        # A wrong or fabricated token is refused; the record must match the check.
+        with self.assertRaisesRegex(ValueError, 'token'):
+            self.tool.record_tool_call(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                       server='da-data', operation='search_content', scope='graph-study',
+                                       token='0' * 64)
+        state = self.tool.record_tool_call(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                           server='da-data', operation='search_content', scope='graph-study',
+                                           token=token)
+        event = state['history'][-1]
+        self.assertEqual(event['action'], 'tool-call-recorded')
+        self.assertEqual(event['token'], token)
+        # The token binds the facts: a different request cannot reuse it.
+        other = self.tool.check_tool(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                     server='da-data', operation='search_content', scope='graph-study')
+        self.assertEqual(other['preflight_token'], token)
+
     def test_prose_coincidence_does_not_assign_a_channel(self):
         # 'stat' is in the grant and 'statistics' appears in the objective; under the
         # old substring check this coincidence passed. Only the structural assignment
