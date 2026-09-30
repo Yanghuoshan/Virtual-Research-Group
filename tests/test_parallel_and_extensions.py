@@ -58,7 +58,7 @@ class AssignmentTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:r1', **changes):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        result = dict(schema_version=7, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=8, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], packet_sha256=digest, accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00', actual_role=packet['target_role']['id'],
                       actual_model='provider/model-a', actual_session_mode=packet['session']['mode'],

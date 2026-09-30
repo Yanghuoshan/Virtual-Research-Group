@@ -16,13 +16,13 @@ SPEC.loader.exec_module(TOOL)
 # Key sets are asserted exactly, so an added routing or registry field fails loudly
 # instead of being invisible to a single "not in" check.
 TASK_KEYS = {'task_id', 'created_phase', 'objective', 'activity', 'skill', 'role',
-             'acceptance_criteria', 'independent_review', 'resolves', 'status',
+             'acceptance_criteria', 'independent_review', 'resolves', 'tools', 'status',
              'assignments', 'submission'}
 PACKET_KEYS = {'schema_version', 'packet_id', 'task_id', 'created_at', 'source_revision',
                'state_sha256', 'core_sha256', 'project_phase', 'objective', 'activity', 'skill',
                'target_role', 'requested_model', 'session', 'summary', 'acceptance_criteria', 'evidence',
-               'declared_blockers', 'execution_contract', 'allowed_outputs', 'dispatch_status', 'receipt_required',
-               'framework_root', 'project_root', 'boundary'}
+               'declared_blockers', 'assigned_tools', 'execution_contract', 'allowed_outputs',
+               'dispatch_status', 'receipt_required', 'framework_root', 'project_root', 'boundary'}
 SKILL_KEYS = {'name', 'description', 'path', 'sha256'}
 SESSION_KEYS = {'mode', 'reason', 'resume_session_id', 'independent_review', 'status',
                 'bootstrap_policy', 'unavailable_policy'}
@@ -109,27 +109,30 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual(custom['role']['id'], 'red-team')
         self.assertIn('counterexamples', custom['role']['prompt'])
 
-    def test_external_tool_policy_lives_in_the_task_objective(self):
+    def test_external_tool_policy_is_a_structured_assignment(self):
         core = (ROOT / 'SKILL.md').read_text()
-        for fragment in ('## External Tools and MCP Servers', 'assigned by the core',
-                         'task objective'):
+        for fragment in ('## External Tools and MCP Servers', 'assigned by the core', '--tool'):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, core)
         self.assertNotIn('allowed_tools', core, 'The removed allowed_tools field must not be referenced')
         template = json.loads((ROOT / 'templates/research-state.json').read_text())
-        self.assertNotIn('allowed_tools', template)
-        self.assertNotIn('authorization', template)
-        self.assertNotIn('budget', template)
-        self.assertNotIn('project_id', template)
-        self.assertNotIn('next_action', template)
+        for name in ('allowed_tools', 'authorization', 'budget', 'project_id', 'next_action'):
+            with self.subTest(name=name):
+                self.assertNotIn(name, template)
         self.initialize()
-        # Permitted channels are declared in the objective text and reach the executor
-        # through the packet summary/objective, not through a state field or tool list.
-        packet = TOOL.handoff(ROOT, self.project, 't1',
-                              'Work from the brief using the assigned literature-search channel only',
+        # Permitted channels are structured assignments that reach the executor through
+        # the packet; never prose matching in the objective.
+        task = TOOL.create_task(ROOT, self.project, 't2', 'Bounded retrieval work', activity='analysis',
+                                skill='literature-review', role='analyst',
+                                acceptance='Bounded retrieval with coverage limits',
+                                tools=['catalog:search'])
+        self.assertEqual(task['tools'], [{'server': 'catalog', 'operation': 'search'}])
+        packet = TOOL.handoff(ROOT, self.project, 't2',
+                              'Work from the brief using the assigned retrieval channel only',
                               ['research-brief.md'],
                               model='current', outputs=['reports/tool-policy.md'])
         self.assertEqual(packet['activity'], 'analysis')
+        self.assertEqual(packet['assigned_tools'], [{'server': 'catalog', 'operation': 'search'}])
         self.assertNotIn('allowed_tools', packet)
         self.assertNotIn('authorization', packet)
         self.assertNotIn('budget', packet)
@@ -172,7 +175,7 @@ class FlatArchitectureTests(unittest.TestCase):
         config = json.loads((ROOT / 'framework.json').read_text())
         self.assertEqual(set(config), {'schema_version', 'note', 'phases', 'activities',
                                        'output_roots', 'roles', 'evaluation_fields'})
-        self.assertEqual(config['schema_version'], 7)
+        self.assertEqual(config['schema_version'], 8)
         self.assertEqual(config['activities'], ['analysis', 'experiment', 'conclusions'])
         self.assertEqual(set(config['output_roots']), TOOL.OUTPUT_ROOTS)
         self.assertEqual(tuple(config['roles']), TOOL.ROLE_IDS)
@@ -653,7 +656,7 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual({p.name for p in self.project.iterdir()},
                          {'research-state.json', 'research-brief.md', 'research-log.md', 'findings.md'})
         state = self.state()
-        self.assertEqual(state['schema_version'], 7)
+        self.assertEqual(state['schema_version'], 8)
         self.assertEqual(state['mode'], 'planning')
         self.assertNotIn('domain', state)
         for removed in ('authorization', 'allowed_tools', 'budget', 'project_id', 'next_action'):

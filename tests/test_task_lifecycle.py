@@ -37,7 +37,7 @@ class TaskLifecycleTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def receipt(self, packet, session_id='host:s1', **changes):
-        result = dict(schema_version=7, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=8, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00',
                       actual_role=packet['target_role']['id'], actual_model='provider/model-a',
@@ -119,7 +119,7 @@ class TaskLifecycleTests(unittest.TestCase):
         legacy['tasks']['t1']['status'] = 'planned'
         self.save(legacy)
         self.tool.migrate_project(ROOT, self.project)
-        self.assertEqual(self.state()['schema_version'], 7)
+        self.assertEqual(self.state()['schema_version'], 8)
 
     def test_goal_versions_are_bound_and_unknowns_block_scope_exit(self):
         goal = self.output('hypotheses/goal-v1.md')
@@ -563,7 +563,7 @@ class TaskLifecycleTests(unittest.TestCase):
         legacy.pop('blocker_seq')
         self.save(legacy)
         state = self.tool.migrate_project(ROOT, self.project)
-        self.assertEqual(state['schema_version'], 7)
+        self.assertEqual(state['schema_version'], 8)
         self.assertEqual(state['blockers'][0]['blocker_id'], 'b1')
         self.assertEqual(state['blockers'][0]['text'], 'Missing baseline')
         self.assertEqual(state['tasks']['fix']['resolves'], ['b1'])
@@ -606,7 +606,7 @@ class GateCommandTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:gate'):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        return {'schema_version': 7, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
+        return {'schema_version': 8, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
                 'source_revision': packet['source_revision'], 'packet_sha256': digest, 'accepted': True,
                 'accepted_at': '2026-01-01T00:00:00+00:00', 'actual_role': packet['target_role']['id'],
                 'actual_model': 'provider/model-a', 'actual_session_mode': packet['session']['mode'],
@@ -672,6 +672,16 @@ class GateCommandTests(unittest.TestCase):
             self.tool.authorize(ROOT, self.project, mode='planning', reason='Search candidate directions',
                                 evidence=[approval], services=['sandbox'], operations=['run'],
                                 scope='graph-study', max_runs=1, expires_at='2099-01-01T00:00:00Z')
+        # Uncataloged operations fail closed: the search channel must be classified
+        # from an ingested catalog before a planning grant may name it.
+        with self.assertRaisesRegex(ValueError, 'read-classified'):
+            self.tool.authorize(ROOT, self.project, mode='planning', reason='Search candidate directions',
+                                evidence=[approval], services=['catalog'], operations=['search'],
+                                scope='graph-study', max_runs=1, expires_at='2099-01-01T00:00:00Z')
+        self.write('tools/catalog-dump.json', json.dumps(
+            {'tools': [{'name': 'search', 'description': 'Search the published catalog'}]}))
+        self.tool.ingest_catalog(ROOT, self.project, 'catalog', 'tools/catalog-dump.json',
+                                 'Host exported the catalog')
         state = self.tool.authorize(ROOT, self.project, mode='planning', reason='Search candidate directions',
                                     evidence=[approval], services=['catalog'], operations=['search'],
                                     scope='graph-study', max_runs=1, expires_at='2099-01-01T00:00:00Z')
@@ -742,7 +752,7 @@ class GateCommandTests(unittest.TestCase):
         protocol = self.protocol()
         self.tool.create_task(ROOT, self.project, 'tool-run', 'Use sandbox run in graph-study',
                               activity='experiment', skill='experiment-execution', role='experimenter',
-                              acceptance='Return protocol-bound measurements')
+                              acceptance='Return protocol-bound measurements', tools=['sandbox:run'])
         packet = self.tool.handoff(ROOT, self.project, 'tool-run', 'Run bounded experiment', [protocol],
                                    model='current', outputs=['experiments/H1/runs/tool-run/results/'])
         args = dict(task_id='tool-run', packet_id=packet['packet_id'], server='sandbox',

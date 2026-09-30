@@ -28,6 +28,17 @@ ENTRY_BUDGETS = (('SKILL.md', 40000), ('README.md', 16000))
 PRIMARY_PREFIXES = ('experiments/', 'data/', 'literature/', 'reports/')
 FINAL_PREFIXES = ('paper/', 'reports/')
 ISO_TIMESTAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\Z')
+# Tool semantics come from the server's own catalog declarations (annotations,
+# description, argument names), never from the operation name alone at call time.
+OPERATION_ID = re.compile(r'[a-z0-9]+(?:[-_][a-z0-9]+)*\Z')
+WRITE_WORDS = re.compile(r'\b(create|insert|update|delete|remove|drop|write|send|submit|execute|'
+                         r'deploy|patch|modify|alter|truncate|replace|rename|append|upload|publish|'
+                         r'cancel|stop|install|grant|revoke|reset|clear|purge)\b')
+READ_WORDS = re.compile(r'\b(read|get|search|fetch|list|query|select|lookup|describe|analyse|analyze|'
+                        r'inspect|check|preview|view|find|obtain|stat|head|diff|show)\b')
+FREE_TEXT_ARGS = {'sql', 'query', 'command', 'commands', 'cmd', 'body', 'script', 'code',
+                  'statement', 'payload', 'request', 'prompt', 'expression'}
+SEMANTICS = ('read', 'write', 'unknown')
 
 
 def require(condition, message):
@@ -49,9 +60,69 @@ def packet_digest(packet):
                                       separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
 
 
-def read_only_operation(name):
-    return isinstance(name, str) and name.lower().startswith(
-        ('read', 'get', 'search', 'fetch', 'list', 'query', 'select', 'lookup', 'analyse', 'analyze'))
+def classify_operation(name, description, annotations, args):
+    """Classify an operation from the server's own catalog evidence.
+
+    Write signals dominate (fail closed), free-text arguments defer to the user,
+    and a read classification needs positive evidence: an explicit readOnlyHint
+    or a read verb in the catalog, with no write signal and no free-text argument.
+    """
+    # Snake and kebab case must be tokenized first: '_' and '-' are word characters,
+    # so \bcreate\b would otherwise never match inside create_query_job.
+    text = f'{name} {description}'.lower().replace('_', ' ').replace('-', ' ')
+    if annotations.get('destructiveHint') is True or WRITE_WORDS.search(text):
+        return 'write'
+    if FREE_TEXT_ARGS.intersection(args):
+        return 'unknown'
+    if annotations.get('readOnlyHint') is True or READ_WORDS.search(text):
+        return 'read'
+    return 'unknown'
+
+
+def registry_path(project, server):
+    require(isinstance(server, str) and OPERATION_ID.fullmatch(server), f'Invalid server ID: {server}')
+    return Path(project).resolve() / 'tools' / f'{server}.json'
+
+
+def write_registry(project, server, registry):
+    """Atomically replace one server's tool registry; the core owns this file."""
+    path = registry_path(project, server)
+    require(not path.is_symlink(), f'Tool registry must not be a symlink: tools/{server}.json')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(registry, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def operation_semantics(project, server, operation):
+    """The recorded classification of one operation; uncataloged means unknown."""
+    path = registry_path(project, server)
+    if not path.is_file():
+        return {'server': server, 'operation': operation, 'classification': 'unknown',
+                'basis': 'not-cataloged'}
+    registry = read_json(path)
+    entry = (registry.get('operations') or {}).get(operation)
+    require(isinstance(entry, dict) and entry.get('classification') in SEMANTICS,
+            f'Invalid registry entry: {server}/{operation}')
+    return {'server': server, 'operation': operation, 'classification': entry['classification'],
+            'basis': entry.get('basis', 'auto')}
+
+
+def planning_semantics(project, services, operation):
+    """Classification a planning grant may rely on: read in a granted registry, never write."""
+    readings = [operation_semantics(project, service, operation) for service in services]
+    if any(reading['classification'] == 'write' for reading in readings):
+        return {'classification': 'write', 'basis': 'registry'}
+    if any(reading['classification'] == 'read' for reading in readings):
+        return {'classification': 'read', 'basis': 'registry'}
+    return {'classification': 'unknown', 'basis': 'not-cataloged'}
 
 
 def freeze_active(state):
@@ -330,7 +401,7 @@ def validate(root):
         config = read_json(root / 'framework.json')
         expected_fields = {'schema_version', 'note', 'phases', 'activities', 'output_roots',
                            'roles', 'evaluation_fields'}
-        require(set(config) == expected_fields and config['schema_version'] == 7,
+        require(set(config) == expected_fields and config['schema_version'] == 8,
                 'framework.json fields or schema differ from the implemented contract')
         require(isinstance(config['note'], str) and config['note'].strip(), 'framework.json note is required')
         require(config['phases'] == [dict(name=name, **phase) for name, phase in phases.items()],
@@ -353,7 +424,7 @@ def validate(root):
         for path in [root / 'SKILL.md', root / 'README.md'] + list((root / 'references').glob('*.md')):
             check_links(path, root)
         state = read_json(root / 'templates/research-state.json')
-        require(state['schema_version'] == 7 and state['mode'] == 'planning', 'Invalid planning defaults')
+        require(state['schema_version'] == 8 and state['mode'] == 'planning', 'Invalid planning defaults')
         log_template = (root / 'templates/research-log.md').read_text(encoding='utf-8')
         require(log_template.count('<!-- brief:start -->') == log_template.count('<!-- brief:end -->') == 1,
                 'Research log template must contain exactly one current-brief marker block')
@@ -371,7 +442,7 @@ def initialize(root, project, question):
     require(nonempty(question), 'Research question cannot be blank')
     require(not project.exists() and not project.is_symlink(), 'Project destination already exists; refusing to overwrite')
     state = read_json(root / 'templates/research-state.json')
-    require(state.get('schema_version') == 7 and state.get('mode') == 'planning', 'Unsupported state defaults')
+    require(state.get('schema_version') == 8 and state.get('mode') == 'planning', 'Unsupported state defaults')
     texts = {name: (root / 'templates' / name).read_text(encoding='utf-8') for name in ('findings.md', 'research-log.md')}
     state.update(question=question.strip(), created_at=datetime.now(timezone.utc).isoformat())
     project.mkdir(parents=True, exist_ok=False)
@@ -459,7 +530,7 @@ def migrate_project(root, project):
     original = path.read_bytes()
     state = json.loads(original)
     version = state.get('schema_version')
-    require(version in (5, 6), 'Only schema 5 or 6 projects can be migrated to schema 7')
+    require(version in (5, 6, 7), 'Only schema 5, 6 or 7 projects can be migrated to schema 8')
     require(state.get('mode') == 'planning' and state.get('status') in PROJECT_STATUS,
             'Return to planning before migration')
     require(isinstance(state.get('tasks'), dict) and isinstance(state.get('history'), list)
@@ -473,44 +544,51 @@ def migrate_project(root, project):
             'Invalid legacy state invariants')
     if version == 5:
         state.update(goal=None, grant=None, reflections=[])
-    # Schema 6 to 7: free-text blockers become stable, auditable blocker records.
-    now = datetime.now(timezone.utc).isoformat()
-    add_events = {event.get('add'): event for event in state['history']
-                  if event.get('action') == 'blockers-changed' and event.get('add')}
-    close_events = {event.get('resolve'): event for event in state['history']
-                     if event.get('action') == 'blockers-changed' and event.get('resolve')}
-    id_map, recovered, open_records, history_records = {}, {}, [], []
-    seq = 0
-    for text in state['blockers']:
-        seq += 1
-        id_map[text] = f'b{seq}'
-        event = add_events.get(text)
-        open_records.append({'blocker_id': id_map[text], 'text': text,
-                              'opened_at': event.get('at') if event else now,
-                              'opened_revision': event.get('revision') if event else state['revision'],
-                              'freeze_all': False})
-    # A resolves declaration may name a blocker resolved earlier; recover those from
-    # decision history instead of guessing or silently dropping the reference.
-    declared = {text for task in state['tasks'].values() for text in (task.get('resolves') or [])}
-    for text in sorted(declared - set(id_map)):
-        add_event, close_event = add_events.get(text), close_events.get(text)
-        require(add_event is not None or close_event is not None,
-                f'Cannot identify the blocker named by a resolves declaration: "{text}"; '
-                'fix the reference manually before migration')
-        seq += 1
-        recovered[text] = f'b{seq}'
-        history_records.append({'blocker_id': recovered[text], 'text': text,
-                                'opened_at': (add_event or close_event)['at'],
-                                'opened_revision': (add_event or close_event).get('revision', state['revision']),
-                                'freeze_all': False,
-                                'resolved_at': close_event['at'] if close_event else now,
-                                'resolved_by': {'kind': 'migration', 'revision': state['revision']}})
+    if version in (5, 6):
+        # Schema 6 to 7: free-text blockers become stable, auditable blocker records.
+        now = datetime.now(timezone.utc).isoformat()
+        add_events = {event.get('add'): event for event in state['history']
+                      if event.get('action') == 'blockers-changed' and event.get('add')}
+        close_events = {event.get('resolve'): event for event in state['history']
+                        if event.get('action') == 'blockers-changed' and event.get('resolve')}
+        id_map, recovered, open_records, history_records = {}, {}, [], []
+        seq = 0
+        for text in state['blockers']:
+            seq += 1
+            id_map[text] = f'b{seq}'
+            event = add_events.get(text)
+            open_records.append({'blocker_id': id_map[text], 'text': text,
+                                  'opened_at': event.get('at') if event else now,
+                                  'opened_revision': event.get('revision') if event else state['revision'],
+                                  'freeze_all': False})
+        # A resolves declaration may name a blocker resolved earlier; recover those from
+        # decision history instead of guessing or silently dropping the reference.
+        declared = {text for task in state['tasks'].values() for text in (task.get('resolves') or [])}
+        for text in sorted(declared - set(id_map)):
+            add_event, close_event = add_events.get(text), close_events.get(text)
+            require(add_event is not None or close_event is not None,
+                    f'Cannot identify the blocker named by a resolves declaration: "{text}"; '
+                    'fix the reference manually before migration')
+            seq += 1
+            recovered[text] = f'b{seq}'
+            history_records.append({'blocker_id': recovered[text], 'text': text,
+                                    'opened_at': (add_event or close_event)['at'],
+                                    'opened_revision': (add_event or close_event).get('revision', state['revision']),
+                                    'freeze_all': False,
+                                    'resolved_at': close_event['at'] if close_event else now,
+                                    'resolved_by': {'kind': 'migration', 'revision': state['revision']}})
+        for task in state['tasks'].values():
+            task['resolves'] = [id_map.get(text, recovered.get(text)) for text in (task.get('resolves') or [])]
+        state.update(blockers=open_records, blocker_history=history_records, blocker_seq=seq)
+    # Schema 7 to 8: per-task tool assignments become a structured contract field.
+    # Prose objectives are never parsed back into assignments; redeclare channels
+    # with --tool on any task that must keep external access.
     for task in state['tasks'].values():
-        task['resolves'] = [id_map.get(text, recovered.get(text)) for text in (task.get('resolves') or [])]
-    state.update(schema_version=7, blockers=open_records, blocker_history=history_records, blocker_seq=seq)
+        task.setdefault('tools', [])
+    state['schema_version'] = 8
     return save_decision(project, state, hashlib.sha256(original).hexdigest(),
                          {'action': 'schema-migrated',
-                          'reason': 'Explicit migration to schema 7; blockers now carry stable IDs'})
+                          'reason': 'Explicit migration to schema 8; tool assignments are structured fields'})
 
 
 def project_state(root, project):
@@ -518,7 +596,7 @@ def project_state(root, project):
     require(not path.is_symlink(), 'Project state must not be a symlink')
     content = path.read_bytes()
     state = json.loads(content)
-    require(isinstance(state, dict) and state.get('schema_version') == 7,
+    require(isinstance(state, dict) and state.get('schema_version') == 8,
             'Unsupported state schema version; manual migration required')
     require(state.get('phase') in core_phases(root), 'Unknown project phase')
     require(state.get('status') in PROJECT_STATUS, 'Unknown project status')
@@ -568,7 +646,7 @@ def save_decision(project, state, expected_hash, event):
 
 
 def create_task(root, project, task_id, objective, *, activity, skill, role, acceptance, independent_review=False,
-                role_prompt_text=None, resolves=None):
+                role_prompt_text=None, resolves=None, tools=None):
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active', 'Project is stopped; reactivate it before creating tasks')
     require(state['phase'] != 'complete', 'Completed research reopens only through a new scope decision')
@@ -584,15 +662,27 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
     require(nonempty(objective) and nonempty(acceptance), 'Objective and acceptance criteria are required')
     require(isinstance(activity, str) and activity in ACTIVITIES, 'Unknown task activity')
     require(type(independent_review) is bool, 'independent_review must be a boolean')
+    # External channels are structured assignments, never inferred from prose.
+    assigned_tools, seen = [], set()
+    for tool in list(tools or []):
+        require(isinstance(tool, str) and nonempty(tool), f'Invalid tool assignment: {tool}')
+        server, separator, operation = tool.partition(':')
+        require(separator and OPERATION_ID.fullmatch(server) and OPERATION_ID.fullmatch(operation),
+                f'Invalid tool assignment (expected server:operation): {tool}')
+        require((server, operation) not in seen, f'Duplicate tool assignment: {tool}')
+        seen.add((server, operation))
+        assigned_tools.append({'server': server, 'operation': operation})
     selected_role = role_contract(root, role, role_prompt_text)
     selected = resolve_skill(root, skill)
     state['tasks'][task_id] = {'task_id': task_id, 'created_phase': state['phase'], 'objective': objective.strip(),
                               'activity': activity, 'skill': skill, 'role': selected_role,
                               'acceptance_criteria': acceptance.strip(), 'independent_review': independent_review,
-                              'resolves': resolves, 'status': 'planned', 'assignments': [], 'submission': []}
+                              'resolves': resolves, 'tools': assigned_tools,
+                              'status': 'planned', 'assignments': [], 'submission': []}
     save_decision(project, state, fingerprint, {'action': 'task-created', 'task_id': task_id,
                                                 'activity': activity, 'skill': skill,
                                                 'role': selected_role['id'], 'resolves': resolves,
+                                                'tools': assigned_tools,
                                                 'reason': objective.strip()})
     return state['tasks'][task_id]
 
@@ -674,13 +764,14 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             held = other['assignments'][-1]['allowed_outputs']
             require(not scopes_overlap(allowed, held),
                     f'Output scope conflicts with the running task {other_id}; pick disjoint versioned paths')
-    return {'schema_version': 7, 'packet_id': str(uuid4()), 'task_id': task_id,
+    return {'schema_version': 8, 'packet_id': str(uuid4()), 'task_id': task_id,
             'created_at': datetime.now(timezone.utc).isoformat(), 'source_revision': state['revision'],
             'state_sha256': fingerprint, 'core_sha256': digest(root / 'SKILL.md'), 'project_phase': state['phase'],
             'objective': task['objective'], 'activity': task['activity'], 'skill': selected,
             'target_role': task['role'], 'requested_model': model, 'session': session, 'summary': summary.strip(),
             'acceptance_criteria': task['acceptance_criteria'], 'evidence': records,
             'declared_blockers': task_resolves_open(state, task.get('resolves') or []),
+            'assigned_tools': task['tools'],
             'execution_contract': execution_contract(state), 'allowed_outputs': allowed, 'dispatch_status': 'not_dispatched', 'receipt_required': True,
             'framework_root': str(root), 'project_root': str(project),
             'boundary': ASSIGNMENT_BOUNDARY}
@@ -690,7 +781,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
-    require(packet.get('schema_version') == 7 and receipt.get('schema_version') == 7, 'Unknown packet or receipt schema')
+    require(packet.get('schema_version') == 8 and receipt.get('schema_version') == 8, 'Unknown packet or receipt schema')
     require(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch')
     require(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
             'Packet is stale: state revision or hash changed')
@@ -719,6 +810,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     selected = resolve_skill(root, task['skill'])
     require(packet.get('skill') == selected, 'Packet skill binding changed')
     require(packet.get('target_role') == task['role'], 'Packet role binding changed')
+    require(packet.get('assigned_tools') == task['tools'], 'Packet tool assignments changed')
     require(packet.get('project_phase') == state['phase'], 'Packet phase snapshot changed')
     require(packet.get('execution_contract') == execution_contract(state), 'Execution contract changed')
     if task['activity'] == 'experiment':
@@ -950,8 +1042,13 @@ def authorize(root, project, *, mode, reason, evidence=(), services=(), operatio
                 'Approved services are required')
         require(isinstance(operations, (tuple, list)) and operations and all(nonempty(x) for x in operations),
                 'Approved operations are required')
-        require(mode != 'planning' or all(read_only_operation(x) for x in operations),
-                'Planning grants may only name read-like operations')
+        if mode == 'planning':
+            for operation in operations:
+                semantics = planning_semantics(project, services, operation)
+                require(semantics['classification'] == 'read',
+                        f'Planning grants may only name read-classified operations; {operation} is '
+                        f'{semantics["classification"]} ({semantics["basis"]}); confirm it with '
+                        'tools --confirm, or request research mode')
         require(nonempty(scope) and type(max_runs) is int and max_runs > 0, 'Grant scope and run limit required')
         iso_timestamp(expires_at, 'Grant expiry')
         require(datetime.fromisoformat(expires_at.replace('Z', '+00:00')) > datetime.now(timezone.utc),
@@ -979,14 +1076,21 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
     require(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed')
     require(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
             'Tool request exceeds approved scope')
-    require(server in task['objective'] and operation in task['objective'],
-            'Tool was not assigned in the task objective')
-    if not read_only_operation(operation):
+    require(any(assigned['server'] == server and assigned['operation'] == operation
+                for assigned in task.get('tools') or []),
+            f'Tool {server}:{operation} was not assigned to task {task_id}; '
+            'assign channels at task creation with --tool server:operation')
+    semantics = operation_semantics(project, server, operation)
+    if semantics['classification'] != 'read':
         require(state['mode'] == 'research' and task['activity'] == 'experiment',
-                'Planning and analysis tasks may only use read-only channels')
+                f'Planning and analysis tasks may only use read-classified channels; '
+                f'{server}/{operation} is {semantics["classification"]} ({semantics["basis"]}); '
+                'confirm it with tools --confirm or run it under research mode')
         attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
         require(attempts <= grant['max_runs'], 'Research run limit exhausted')
-    return {'allowed': True, 'task_id': task_id, 'packet_id': packet_id, 'grant': grant['evidence']}
+    return {'allowed': True, 'task_id': task_id, 'packet_id': packet_id, 'grant': grant['evidence'],
+            'operation_semantics': semantics,
+            'needs_confirmation': semantics['classification'] == 'unknown'}
 
 
 def set_evaluation(root, project, *, primary_measure, baseline, validation_plan, uncertainty_plan, reason):
@@ -1076,6 +1180,101 @@ def list_blockers(root, project):
     state, _ = project_state(root, project)
     return {'open': state['blockers'], 'history': state['blocker_history'],
             'note': 'Read only; change blockers with blockers --add, --resolve or --edit'}
+
+
+def ingest_catalog(root, project, server, catalog, reason):
+    """Classify a host-exported MCP tool catalog into the project tool registry.
+
+    The host (which can see the server) exports the tool list to a project-relative
+    file; the helper parses it, classifies each operation from the server's own
+    declarations, and preserves confirmed answers whose tool signature is unchanged.
+    """
+    state, fingerprint = open_project(root, project)
+    require(nonempty(reason), 'Catalog ingestion needs an explicit core reason')
+    require(nonempty(server), 'A server name is required')
+    dump = read_json(local_path(project, catalog))
+    tools = dump.get('tools') if isinstance(dump, dict) else dump
+    require(isinstance(tools, list) and tools, 'The catalog must be a nonempty tools list')
+    previous = {}
+    path = registry_path(project, server)
+    if path.is_file():
+        require(not path.is_symlink(), f'Tool registry must not be a symlink: tools/{server}.json')
+        previous = read_json(path).get('operations') or {}
+        require(isinstance(previous, dict), 'Invalid tool registry')
+    now = datetime.now(timezone.utc).isoformat()
+    entries, counts = {}, {'read': 0, 'write': 0, 'unknown': 0}
+    for tool in tools:
+        require(isinstance(tool, dict), 'Each catalog entry must be an object')
+        name = tool.get('name')
+        require(isinstance(name, str) and OPERATION_ID.fullmatch(name), f'Invalid operation name: {name}')
+        description = tool.get('description') or ''
+        require(isinstance(description, str), f'Invalid description: {name}')
+        annotations = tool.get('annotations') or {}
+        require(isinstance(annotations, dict), f'Invalid annotations: {name}')
+        schema = tool.get('input_schema') or tool.get('inputSchema') or {}
+        require(isinstance(schema, dict), f'Invalid input schema: {name}')
+        args = sorted((schema.get('properties') or {}).keys())
+        signature = hashlib.sha256(json.dumps([name, description, sorted(annotations.items()), args],
+                                              sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+        classification = classify_operation(name, description, annotations, args)
+        entry = {'operation': name, 'description': description, 'annotations': annotations,
+                 'input_args': args, 'classification': classification, 'basis': 'auto',
+                 'classified_at': now, 'signature': signature}
+        old = previous.get(name)
+        if isinstance(old, dict) and old.get('basis') == 'confirmed' and old.get('signature') == signature:
+            entry.update(classification=old['classification'], basis='confirmed',
+                         confirmed_at=old.get('confirmed_at'), reason=old.get('reason'))
+        else:
+            counts[classification] += 1
+        entries[name] = entry
+    registry = {'server': server, 'schema_version': 1,
+                'catalog_sha256': digest(local_path(project, catalog)), 'operations': entries}
+    write_registry(project, server, registry)
+    save_decision(project, state, fingerprint, {'action': 'tool-catalog-ingested', 'server': server,
+                                                'auto_classified': counts,
+                                                'preserved_confirmations': len(entries) - sum(counts.values()),
+                                                'reason': reason.strip()})
+    return registry
+
+
+def confirm_semantics(root, project, server, operation, semantics, reason):
+    """Record the user's answer for an ambiguous operation, with drift detection.
+
+    A confirmation binds the tool signature it was given; a catalog re-ingest that
+    changes the tool resets the entry to the automatic classification.
+    """
+    state, fingerprint = open_project(root, project)
+    require(semantics in ('read', 'write'), 'Semantics must be read or write')
+    require(nonempty(reason), 'Confirming tool semantics needs the user-decided reason')
+    require(nonempty(server) and nonempty(operation), 'Server and operation are required')
+    path = registry_path(project, server)
+    require(path.is_file(), f'No tool registry for server {server}; ingest a catalog first')
+    registry = read_json(path)
+    entry = (registry.get('operations') or {}).get(operation)
+    require(isinstance(entry, dict), f'Unknown operation for server {server}: {operation}')
+    entry.update(classification=semantics, basis='confirmed',
+                 confirmed_at=datetime.now(timezone.utc).isoformat(), reason=reason.strip())
+    write_registry(project, server, registry)
+    save_decision(project, state, fingerprint, {'action': 'tool-semantics-confirmed', 'server': server,
+                                                'operation': operation, 'semantics': semantics,
+                                                'reason': reason.strip()})
+    return registry
+
+
+def view_registry(root, project, server=None):
+    """Read-only view of the ingested tool registries."""
+    project_state(root, project)
+    base = Path(project).resolve() / 'tools'
+    servers = {}
+    if base.is_dir():
+        for path in sorted(base.glob('*.json')):
+            if server and path.stem != server:
+                continue
+            servers[path.stem] = read_json(path)
+    if server:
+        require(server in servers, f'No tool registry for server {server}; ingest a catalog first')
+    return {'servers': servers,
+            'note': 'Read only; classify with tools --catalog and confirm with tools --confirm'}
 
 
 def set_project_status(root, project, *, status, reason):
@@ -1205,7 +1404,7 @@ def main(argv=None):
     watch_parser = commands.add_parser('watch', help='Read-only active task and job supervision')
     watch_parser.add_argument('--project', required=True, type=Path)
     watch_parser.add_argument('--hours', type=float, default=2)
-    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5 or 6 to 7 migration')
+    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5, 6 or 7 to 8 migration')
     migrate.add_argument('--project', required=True, type=Path)
     init = commands.add_parser('init', help='Create four planning documents')
     init.add_argument('--project', required=True, type=Path)
@@ -1216,6 +1415,14 @@ def main(argv=None):
     tool = commands.add_parser('check-tool', help='Read-only check before host tool invocation')
     for option in ('project', 'task', 'packet', 'server', 'operation', 'scope'):
         tool.add_argument('--' + option, required=True)
+    tools = commands.add_parser('tools', help='Ingest a host tool catalog, confirm ambiguous semantics, or view registries')
+    tools.add_argument('--project', required=True, type=Path)
+    tools.add_argument('--server')
+    tools.add_argument('--catalog')
+    tools.add_argument('--confirm', action='store_true')
+    tools.add_argument('--operation')
+    tools.add_argument('--semantics', choices=('read', 'write'))
+    tools.add_argument('--reason')
     event = commands.add_parser('host-event', help='Core only: record host job state')
     for option in ('project', 'task', 'job', 'status', 'reason'):
         event.add_argument('--' + option, required=True)
@@ -1233,6 +1440,8 @@ def main(argv=None):
     task.add_argument('--project', required=True, type=Path)
     task.add_argument('--independent-review', action='store_true')
     task.add_argument('--resolves', nargs='+', default=[], help='Open blocker IDs this task is created to resolve')
+    task.add_argument('--tool', action='append', default=[],
+                      help='Assigned external channel as server:operation; repeatable')
     task.add_argument('--role-prompt', help='Explicit standpoint prompt; required for role ids without a canonical template')
     transfer = commands.add_parser('handoff', help='Print one task assignment; no state change or dispatch')
     transfer.add_argument('--project', required=True, type=Path)
@@ -1323,6 +1532,15 @@ def main(argv=None):
         elif args.command == 'check-tool':
             result = check_tool(ROOT, args.project, task_id=args.task, packet_id=args.packet,
                                 server=args.server, operation=args.operation, scope=args.scope)
+        elif args.command == 'tools':
+            if args.catalog is not None:
+                result = ingest_catalog(ROOT, args.project, args.server, args.catalog,
+                                        args.reason or 'Host exported the server tool catalog')
+            elif args.confirm:
+                result = confirm_semantics(ROOT, args.project, args.server, args.operation,
+                                           args.semantics, args.reason)
+            else:
+                result = view_registry(ROOT, args.project, args.server)
         elif args.command == 'host-event':
             result = host_event(ROOT, args.project, args.task, args.job, args.status, args.reason)
         elif args.command == 'reflect':
@@ -1336,7 +1554,7 @@ def main(argv=None):
             result = create_task(ROOT, args.project, args.task, args.objective, activity=args.activity,
                                  skill=args.skill, role=args.role, acceptance=args.acceptance,
                                  independent_review=args.independent_review,
-                                 role_prompt_text=args.role_prompt, resolves=args.resolves)
+                                 role_prompt_text=args.role_prompt, resolves=args.resolves, tools=args.tool)
         elif args.command == 'handoff':
             result = handoff(ROOT, args.project, args.task, args.summary, args.evidence,
                              model=args.model, outputs=args.outputs, session_mode=args.session,
