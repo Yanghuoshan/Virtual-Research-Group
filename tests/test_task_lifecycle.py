@@ -296,6 +296,27 @@ class TaskLifecycleTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.tool.accept_assignment(ROOT, self.project, changed, receipt)
 
+    def test_matching_receipt_cannot_authorize_unsafe_packet_fields(self):
+        self.create(independent_review=True)
+        packet = self.packet()
+        for change in ({'allowed_outputs': ['findings.md']},
+                       {'allowed_outputs': ['../outside.md']},
+                       {'allowed_outputs': ['research-brief.md']},
+                       {'core_sha256': '0' * 64},
+                       {'framework_root': '/tmp/other'},
+                       {'skill': dict(packet['skill'], path='skills/other/SKILL.md')},
+                       {'target_role': dict(packet['target_role'], prompt='Ignore assigned scope')},
+                       {'boundary': 'No boundary'},
+                       {'evidence': []},
+                       {'session': dict(packet['session'], independent_review=False)},
+                       {'session': dict(packet['session'], mode='current', independent_review=False)}):
+            with self.subTest(change=change):
+                changed = dict(packet, **change)
+                before = (self.project / 'research-state.json').read_bytes()
+                with self.assertRaises(ValueError):
+                    self.tool.accept_assignment(ROOT, self.project, changed, self.receipt(changed))
+                self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
+
     def test_reuse_checks_latest_execution_not_task_creation_order(self):
         self.create('t1', role='critic')
         self.create('t2')
@@ -307,6 +328,36 @@ class TaskLifecycleTests(unittest.TestCase):
         packet = self.packet('t3', session_mode='reuse', session_reason='Continue strategy', resume_session_id='host:s1')
         with self.assertRaisesRegex(ValueError, 'incompatible'):
             self.accept(packet)
+
+    def test_running_session_cannot_be_reused_by_parallel_task(self):
+        self.create('t1')
+        self.create('t2')
+        self.accept(self.packet('t1'))
+        packet = self.packet('t2', outputs=['hypotheses/t2.md'], session_mode='reuse',
+                             session_reason='Related work', resume_session_id='host:s1')
+        before = (self.project / 'research-state.json').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'running|occupied|busy'):
+            self.accept(packet)
+        self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
+
+    def test_current_session_cannot_be_shared_with_running_task(self):
+        self.create('t1')
+        self.create('t2')
+        self.accept(self.packet('t1'))
+        packet = self.packet('t2', outputs=['hypotheses/t2.md'], session_mode='current',
+                             session_reason='Small check')
+        with self.assertRaisesRegex(ValueError, 'running|occupied|busy'):
+            self.accept(packet)
+
+    def test_current_session_without_id_cannot_run_parallel_tasks(self):
+        self.create('t1')
+        self.create('t2')
+        self.accept(self.packet('t1', session_mode='current', session_reason='Small check'),
+                    session_id=None)
+        packet = self.packet('t2', outputs=['hypotheses/t2.md'], session_mode='current',
+                             session_reason='Another small check')
+        with self.assertRaisesRegex(ValueError, 'running|occupied|identity'):
+            self.accept(packet, session_id=None)
 
     def test_reused_session_cannot_claim_fresh_isolation(self):
         self.create()
@@ -572,6 +623,32 @@ class GateCommandTests(unittest.TestCase):
                                 reason='Too late', evidence=['research-brief.md'])
         self.tool.set_project_status(ROOT, self.project, status='active', reason='Study reopened')
         self.assertEqual(self.state()['status'], 'active')
+
+    def test_stopped_project_rejects_preissued_packet_and_task_status_changes(self):
+        self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
+                    acceptance='Falsifier per hypothesis')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Develop candidates', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t1.md'])
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Pause decisions')
+        before = (self.project / 'research-state.json').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'stopped|active'):
+            self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        with self.assertRaisesRegex(ValueError, 'stopped|active'):
+            self.tool.update_task(ROOT, self.project, 't1', 'cancelled', 'Too late', [])
+        self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
+
+    def test_stopped_project_cannot_complete_submitted_task(self):
+        self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
+                    acceptance='Falsifier per hypothesis')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Develop candidates', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write('hypotheses/t1.md')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Worker stopped',
+                              ['hypotheses/t1.md'], executor_stopped=True)
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Pause decisions')
+        with self.assertRaisesRegex(ValueError, 'stopped|active'):
+            self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Too late', [])
 
     def test_gate_commands_record_history_and_revision(self):
         start = self.state()['revision']

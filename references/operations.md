@@ -76,7 +76,7 @@ python3 scripts/research.py set-audit --project ./projects/study --kind evidence
 
 An evidence audit must bind `findings.md`, the frozen protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/` (survey and report projects may close on `literature/` or `reports/` evidence); a final review must bind `findings.md` and primary artifacts under `paper/` or `reports/`. Audit records use schema 2: a nonempty reviewer, an ISO 8601 `reviewed_at`, and at least one verified claim with its support. Every evidence path cited by a conclusions task or by `phase --to complete` must already appear in the audited subjects, so an unaudited file cannot ride along with a verified claim.
 
-`stopped` closes new tasks, handoffs, phase decisions and gate commands alike; only `project-status --to active` reopens it. It requires the active executor to have stopped first, and setting the status the project already has is refused. While a project stays active, open blockers stop task creation, assignment, completion and phase decisions, so pausing work without closing the project is expressed as blockers rather than as a status value.
+`stopped` closes new tasks, handoffs, acceptance, task-status, phase decisions and gate commands alike; only `project-status --to active` reopens it. It requires the active executor to have stopped first, and setting the status the project already has is refused. While a project stays active, open blockers stop task creation, assignment, completion and phase decisions, so pausing work without closing the project is expressed as blockers rather than as a status value.
 
 ## Assign Without Changing Phase
 
@@ -93,7 +93,7 @@ All output targets must be new artifacts below `literature/`, `hypotheses/`, `ex
 ## Select a Session and Accept the Actual Executor
 
 - `--session fresh`: default. Request new isolated working history, not a full-history fork.
-- `--session reuse --session-reason "Compatible local continuation" --resume-session "host/session:123"`: request an already recorded idle host session. The helper only checks that no task is currently running; the core confirms the previous assignment was submitted, completed or cancelled and that its assumptions still hold. It also checks the latest accepted assignment for that session, matching skill, role id and role prompt digest, and actual model. Related tasks may reuse a session.
+- `--session reuse --session-reason "Compatible local continuation" --resume-session "host/session:123"`: request an already recorded idle host session. The helper checks that the resumed host session ID is not held by a running task; the core confirms the previous assignment was submitted, completed or cancelled and that its assumptions still hold. It also checks the latest accepted assignment for that session, matching skill, role id and role prompt digest, and actual model. Related tasks may reuse a session.
 - `--session current --session-reason "Small task without an independence requirement"`: explicitly use the current session.
 
 Set `--independent-review` on **task creation** when independent assessment is required. It cannot be removed by retrying in a different session mode. Independent tasks require fresh execution; no silent fallback.

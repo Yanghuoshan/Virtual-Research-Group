@@ -15,10 +15,12 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 ID = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*\Z')
 MEASURES = ('primary_measure', 'baseline', 'validation_plan', 'uncertainty_plan')
+ACTIVITIES = ('analysis', 'experiment', 'conclusions')
 OUTPUT_ROOTS = {'literature', 'hypotheses', 'experiments', 'src', 'data', 'paper', 'reports', 'reviews'}
 PROJECT_STATUS = ('active', 'stopped')
 ROLE_IDS = ('strategist', 'methodologist', 'experimenter', 'analyst', 'writer', 'reviewer', 'critic')
 ADVISORY_PREFIX = 'NOTE: '
+ASSIGNMENT_BOUNDARY = 'One skill assignment only. Return to the core; no delegation, session creation, or global state edits.'
 SKILL_BUDGET = 20000
 PRIMARY_PREFIXES = ('experiments/', 'data/', 'literature/', 'reports/')
 FINAL_PREFIXES = ('paper/', 'reports/')
@@ -47,13 +49,13 @@ def packet_digest(packet):
 def blocking_blockers(state):
     """Blockers no open task has declared it will resolve; only these stop new work.
 
-    A blocker that a planned, running, submitted or blocked task declares under
+    A blocker that a planned, running or submitted task declares under
     `resolves` is being worked on; it no longer freezes the project while the
-    resolving task is open. Completing that task removes the blocker.
+    resolving task can proceed. A blocked resolver restores the blocker.
     """
     declared = set()
     for task in state['tasks'].values():
-        if task.get('status') not in ('completed', 'cancelled'):
+        if task.get('status') in ('planned', 'running', 'submitted'):
             declared.update(task.get('resolves') or [])
     return [blocker for blocker in state['blockers'] if blocker not in declared]
 
@@ -262,7 +264,20 @@ def budget_notes(root):
 def validate(root):
     root = Path(root).resolve()
     try:
-        core_phases(root)
+        phases = core_phases(root)
+        config = read_json(root / 'framework.json')
+        expected_fields = {'schema_version', 'note', 'phases', 'activities', 'output_roots',
+                           'roles', 'evaluation_fields'}
+        require(set(config) == expected_fields and config['schema_version'] == 5,
+                'framework.json fields or schema differ from the implemented contract')
+        require(isinstance(config['note'], str) and config['note'].strip(), 'framework.json note is required')
+        require(config['phases'] == [dict(name=name, **phase) for name, phase in phases.items()],
+                'framework.json phases differ from SKILL.md')
+        require(config['activities'] == list(ACTIVITIES), 'framework.json activities differ from runtime')
+        require(isinstance(config['output_roots'], list) and len(config['output_roots']) == len(OUTPUT_ROOTS)
+                and set(config['output_roots']) == OUTPUT_ROOTS, 'framework.json output roots differ from runtime')
+        require(config['roles'] == list(ROLE_IDS), 'framework.json roles differ from runtime')
+        require(config['evaluation_fields'] == list(MEASURES), 'framework.json evaluation fields differ from runtime')
         for role_id in ROLE_IDS:
             role_prompt(root, role_id)
         entries = discover_skills(root)
@@ -342,7 +357,7 @@ def verify_audit(project, reference, label, required_paths, required_prefixes):
     return [record] + checked
 
 
-def check_outputs(project, outputs, inputs):
+def check_outputs(project, outputs, inputs, *, require_new=True):
     require(isinstance(outputs, list) and outputs, 'Explicit output paths are required')
     checked = []
     for value in outputs:
@@ -350,7 +365,7 @@ def check_outputs(project, outputs, inputs):
         relative = path.relative_to(project)
         require(relative.parts and relative.parts[0] in OUTPUT_ROOTS and len(relative.parts) > 1,
                 f'Output must be a bounded task artifact, not global state or a root directory: {value}')
-        require(not (project / value).is_symlink() and not path.exists(),
+        require(not (project / value).is_symlink() and (not require_new or not path.exists()),
                 f'Output already exists or is a symlink; use a new version: {value}')
         for evidence in inputs:
             source = local_path(project, evidence['path'])
@@ -427,7 +442,7 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
     require(isinstance(task_id, str) and ID.fullmatch(task_id), 'Invalid task ID; use lowercase letters, digits and hyphens')
     require(task_id not in state['tasks'], 'Task ID already exists; never overwrite its contract')
     require(nonempty(objective) and nonempty(acceptance), 'Objective and acceptance criteria are required')
-    require(isinstance(activity, str) and activity in ('analysis', 'experiment', 'conclusions'), 'Unknown task activity')
+    require(isinstance(activity, str) and activity in ACTIVITIES, 'Unknown task activity')
     require(type(independent_review) is bool, 'independent_review must be a boolean')
     selected_role = role_contract(root, role, role_prompt_text)
     selected = resolve_skill(root, skill)
@@ -443,7 +458,7 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
 
 
 def activity_evidence(project, state, activity, records, final=False):
-    require(activity in ('analysis', 'experiment', 'conclusions'), 'Unknown task activity')
+    require(activity in ACTIVITIES, 'Unknown task activity')
     if activity == 'experiment':
         require(state['mode'] == 'research',
                 'Execution requires research mode set through an explicit core decision')
@@ -503,11 +518,13 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             'acceptance_criteria': task['acceptance_criteria'], 'evidence': records,
             'allowed_outputs': allowed, 'dispatch_status': 'not_dispatched', 'receipt_required': True,
             'framework_root': str(root), 'project_root': str(project),
-            'boundary': 'One skill assignment only. Return to the core; no delegation, session creation, or global state edits.'}
+            'boundary': ASSIGNMENT_BOUNDARY}
 
 
 def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_file=None):
+    root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
+    require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
     require(packet.get('schema_version') == 5 and receipt.get('schema_version') == 5, 'Unknown packet or receipt schema')
     require(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch')
     require(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
@@ -517,18 +534,27 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     task = state['tasks'][task_id]
     require(task['status'] == 'planned', 'Task must be planned before assignment')
     require(not blocking_blockers(state), 'Resolve blockers before acceptance')
+    require(packet.get('core_sha256') == digest(root / 'SKILL.md'), 'Packet core binding changed')
+    require(packet.get('framework_root') == str(root) and packet.get('project_root') == str(project),
+            'Packet root binding changed')
+    require(packet.get('dispatch_status') == 'not_dispatched' and packet.get('receipt_required') is True
+            and packet.get('boundary') == ASSIGNMENT_BOUNDARY, 'Packet dispatch contract changed')
+    require(nonempty(packet.get('summary')) and nonempty(packet.get('requested_model')),
+            'Packet rationale and model are required')
     session = packet['session']
+    require(session == session_request(session.get('mode'), session.get('reason'),
+                                       session.get('resume_session_id'), task['independent_review']),
+            'Packet session contract changed')
     # The packet cannot rewrite the live task contract: every state-derived field
     # is rechecked directly against the current task and state.
     require(packet.get('objective') == task['objective'] and packet.get('activity') == task['activity'],
             'Packet contract changed: objective')
     require(packet.get('acceptance_criteria') == task['acceptance_criteria'], 'Packet contract changed: acceptance')
     selected = resolve_skill(root, task['skill'])
-    require(packet['skill']['name'] == task['skill'] and packet['skill']['sha256'] == selected['sha256'],
-            'Packet skill binding changed')
-    require(packet['target_role']['id'] == task['role']['id']
-            and packet['target_role']['sha256'] == task['role']['sha256'], 'Packet role binding changed')
+    require(packet.get('skill') == selected, 'Packet skill binding changed')
+    require(packet.get('target_role') == task['role'], 'Packet role binding changed')
     require(packet.get('project_phase') == state['phase'], 'Packet phase snapshot changed')
+    require(isinstance(packet.get('evidence'), list) and packet['evidence'], 'Assignment input is required')
     for record in packet['evidence']:
         verify_reference(project, record, 'Assignment input')
     activity_evidence(project, state, task['activity'], list(packet['evidence']))
@@ -550,6 +576,12 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     require(type(receipt.get('session_isolation_verified')) is bool, 'Session isolation check is required')
     history = [a for t in state['tasks'].values() for a in t['assignments']]
     require(all(a['packet_id'] != packet['packet_id'] for a in history), 'Packet already accepted')
+    require(actual_id is not None or session['mode'] != 'current' or not state['active_tasks'],
+            'Current session without identity cannot be shared with a running task')
+    require(actual_id is None or not any(other['status'] == 'running' and other['assignments']
+                                        and other['assignments'][-1]['actual_session_id'] == actual_id
+                                        for other in state['tasks'].values()),
+            'Host session is occupied by a running task')
     if session['mode'] == 'fresh':
         require(receipt['session_isolation_verified'], 'Fresh session isolation must be verified by the core')
         require(actual_id is None or all(a['actual_session_id'] != actual_id for a in history),
@@ -567,10 +599,14 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
                 and last['role_sha256'] == packet['target_role']['sha256']
                 and last['actual_model'] == receipt['actual_model'],
                 'Resumed session has incompatible skill, role or model')
-    # Output scopes held by other running tasks stay exclusive; the executor of
-    # this packet may already have written its artifacts (receipt first, artifacts
-    # during execution), so existence is not rechecked here.
-    allowed = packet['allowed_outputs']
+    # Recheck scope boundaries without requiring the executor's output to remain absent.
+    protected = list(packet['evidence'])
+    for field in ('protocol', 'evidence_review', 'review'):
+        reference = state.get(field)
+        if isinstance(reference, dict) and nonempty(reference.get('path')):
+            protected.append({'path': reference['path']})
+    allowed = check_outputs(project, packet.get('allowed_outputs'), protected, require_new=False)
+    require(allowed == packet['allowed_outputs'], 'Packet output scope changed')
     for other_id, other in state['tasks'].items():
         if other_id != task_id and other['status'] == 'running':
             require(not scopes_overlap(allowed, other['assignments'][-1]['allowed_outputs']),
@@ -590,7 +626,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
 
 
 def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False):
-    state, fingerprint = project_state(root, project)
+    state, fingerprint = open_project(root, project)
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     require(nonempty(reason), 'Core decision reason is required')
     task = state['tasks'][task_id]
@@ -758,7 +794,7 @@ def status(root, project):
     state, _ = project_state(root, project)
     resolving = {}
     for task in state['tasks'].values():
-        if task.get('status') not in ('completed', 'cancelled'):
+        if task.get('status') in ('planned', 'running', 'submitted'):
             for blocker in task.get('resolves') or []:
                 resolving.setdefault(blocker, []).append(task['task_id'])
     lines = [f"# Research Status", '',

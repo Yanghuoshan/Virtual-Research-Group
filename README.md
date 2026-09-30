@@ -84,7 +84,7 @@ Several tasks may run in parallel under mutually exclusive output scopes. `accep
 
 ## Reading Project State
 
-Read `research-state.json` in order: `status`, `blockers` (unresolved blockers stop new work; blockers being resolved by an open task do not), `phase`, `active_tasks`, and `history` newest-last. `mode` (`planning`/`research`) is the single experiment gate. `research-log.md` opens with the current brief the core rewrites at every decision, and `scripts/research.py status --project ...` renders the same state as a one-page board. See [session policy](SKILL.md#session-lifecycle) and [operations](references/operations.md).
+Read `research-state.json` in order: `status`, `blockers` (unresolved blockers stop new work; a planned, running or submitted resolver temporarily suppresses its blocker, but a blocked resolver does not), `phase`, `active_tasks`, and `history` newest-last. `mode` (`planning`/`research`) is the single experiment gate. `research-log.md` opens with the current brief the core rewrites at every decision, and `scripts/research.py status --project ...` renders the same state as a one-page board. See [session policy](SKILL.md#session-lifecycle) and [operations](references/operations.md).
 
 ## Extend Without Adding a Routing Layer
 

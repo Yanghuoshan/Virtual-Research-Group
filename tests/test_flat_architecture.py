@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('flat_research', ROOT / 'scripts/research.py')
@@ -166,6 +167,50 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(phase=name):
                 self.assertIn(f'- **{name}:**', guidance,
                               'Phase guidance must describe every authoritative phase')
+
+    def test_framework_json_only_advertises_implemented_contract(self):
+        config = json.loads((ROOT / 'framework.json').read_text())
+        self.assertEqual(set(config), {'schema_version', 'note', 'phases', 'activities',
+                                       'output_roots', 'roles', 'evaluation_fields'})
+        self.assertEqual(config['schema_version'], 5)
+        self.assertEqual(config['activities'], ['analysis', 'experiment', 'conclusions'])
+        self.assertEqual(set(config['output_roots']), TOOL.OUTPUT_ROOTS)
+        self.assertEqual(tuple(config['roles']), TOOL.ROLE_IDS)
+        self.assertEqual(tuple(config['evaluation_fields']), TOOL.MEASURES)
+        self.assertEqual({p['name']: {k: v for k, v in p.items() if k != 'name'}
+                          for p in config['phases']}, TOOL.core_phases(ROOT))
+
+    def test_validate_rejects_framework_config_drift(self):
+        original_read = TOOL.read_json
+        config = original_read(ROOT / 'framework.json')
+        for drift in ({'activities': config['activities'] + ['pilot']},
+                      {'phases': [dict(config['phases'][0], next=['write'])] + config['phases'][1:]}):
+            with self.subTest(drift=drift):
+                changed = dict(config, **drift)
+                def read_with_drift(path):
+                    return changed if Path(path).name == 'framework.json' else original_read(path)
+                with mock.patch.object(TOOL, 'read_json', side_effect=read_with_drift):
+                    self.assertTrue(any('framework.json' in error for error in TOOL.validate(ROOT)))
+
+    def test_audit_skill_proposals_match_acceptance_schema(self):
+        template = json.loads((ROOT / 'templates/evidence-audit.json').read_text())
+        self.assertEqual(template['schema_version'], 2)
+        for skill, reference in (('reproducibility-audit', 'audit-report-template.md'),
+                                 ('manuscript-review', 'review-report-template.md')):
+            with self.subTest(skill=skill):
+                for path in (ROOT / 'skills' / skill / 'SKILL.md',
+                             ROOT / 'skills' / skill / 'references' / reference):
+                    text = path.read_text()
+                    self.assertIn('`schema_version: 2`', text)
+                    self.assertIn('`claims`', text)
+        for path in (ROOT / 'SKILL.md',
+                     ROOT / 'skills/reproducibility-audit/SKILL.md',
+                     ROOT / 'skills/reproducibility-audit/references/audit-report-template.md'):
+            with self.subTest(path=path):
+                text = path.read_text()
+                self.assertIn('`literature/`', text)
+                self.assertIn('`reports/`', text)
+                self.assertIn('frozen protocol', text)
 
     def test_entry_point_stays_within_reading_budget(self):
         notes = TOOL.budget_notes(ROOT)

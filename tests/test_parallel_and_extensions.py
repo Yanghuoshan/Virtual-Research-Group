@@ -122,6 +122,19 @@ class AssignmentTests(unittest.TestCase):
         self.assertEqual(self.state()['blockers'], [])
         self.assertIn('auto_resolved', self.state()['history'][-1])
 
+    def test_blocked_resolver_does_not_suppress_its_blocker(self):
+        self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline unavailable')
+        self.create('fix', resolves=['Missing baseline'])
+        self.accept(self.packet('fix'))
+        self.tool.update_task(ROOT, self.project, 'fix', 'blocked', 'Cannot access source', [],
+                              executor_stopped=True)
+        with self.assertRaisesRegex(ValueError, 'blockers'):
+            self.create('unrelated')
+        with self.assertRaisesRegex(ValueError, 'blockers'):
+            self.tool.transition_phase(ROOT, self.project, 'ideation', 'Not ready', ['research-brief.md'])
+        self.create('alternative', resolves=['Missing baseline'])
+        self.assertEqual(self.state()['blockers'], ['Missing baseline'])
+
     def test_unresolved_blockers_still_stop_new_work(self):
         self.tool.update_blockers(ROOT, self.project, add='Data access denied', reason='No channel approved')
         with self.assertRaisesRegex(ValueError, 'blockers'):

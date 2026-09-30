@@ -17,7 +17,7 @@ Core → select task → assign one skill in a session → inspect submission �
 
 ## State and Safety
 
-Schema-4 `research-state.json` contains `tasks`, a sole running `active_task` ID, and append-only decision `history`. Assignment packets and actual receipts remain under their task records. No new routing configuration or task/session service is needed. The four-root-document initialization and hypothesis/run artifact layout remain unchanged.
+Schema-5 `research-state.json` contains `tasks`, a list of running `active_tasks` IDs, compact assignment records, and append-only decision `history`. Full assignment packets and actual receipts are saved separately under `handoffs/`. No new routing configuration or task/session service is needed. The four-root-document initialization and hypothesis/run artifact layout remain unchanged.
 
 Explicit core commands atomically save state with revision checks. They do not run in the background, choose what to do next, or authorize specialists to edit state. Use one writer; no distributed lock or cost meter is implied. The narrative log is maintained separately and is not part of an atomic cross-file transaction.
 

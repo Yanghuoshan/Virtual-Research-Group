@@ -22,7 +22,7 @@ Claim-to-evidence map, findings, protocol, raw evidence, code/data/environment m
 
 ## Outputs
 
-A task-local report at a new assigned path. When requested, propose an evidence-audit JSON with `schema_version: 1`, actual `reviewer`, `reviewed_at`, `summary`, and `subjects` containing project-relative `path` / actual `sha256` pairs. For an evidence gate, bind current `findings.md`, the current protocol and separate raw evidence under `experiments/` or `data/`, plus inspected dependencies. Missing required subjects remain blockers; never invent hashes. Approval status is not an audit-file field: only the core can set `evidence_review.status=verified` after checking reasoning and coverage.
+A task-local report at a new assigned path. When requested, propose an evidence-audit JSON with `schema_version: 2`, actual `reviewer`, `reviewed_at`, `summary`, a nonempty `claims` list of `claim` / `support` pairs, and `subjects` containing project-relative `path` / actual `sha256` pairs. For an evidence gate, bind current `findings.md`, any frozen protocol and separate primary evidence under `experiments/`, `data/`, `literature/` or `reports/`, plus inspected dependencies. Missing required subjects remain blockers; never invent hashes. Approval status is not an audit-file field: only the core can set `evidence_review.status=verified` after checking reasoning and coverage.
 
 ## Checks
 

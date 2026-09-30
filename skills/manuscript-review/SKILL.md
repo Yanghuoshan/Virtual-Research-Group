@@ -22,7 +22,7 @@ Exact manuscript version, review scope and venue/audience criteria, claim-to-evi
 
 ## Outputs
 
-A new task-local report at a new assigned path, containing the claim/evidence map, severity-ranked issue list, unresolved questions and recommendation. When requested, propose final-review JSON with `schema_version: 1`, actual `reviewer`, `reviewed_at`, `summary`, and `subjects` as project-relative `path` / actual `sha256` pairs. Bind current `findings.md`, the manuscript under `paper/`, and inspected dependencies. Missing required artifacts prevent a complete proposal. Core-owned `review.status=passed` is separate from the audit file; this review does not replace the evidence audit or completion gates.
+A new task-local report at a new assigned path, containing the claim/evidence map, severity-ranked issue list, unresolved questions and recommendation. When requested, propose final-review JSON with `schema_version: 2`, actual `reviewer`, `reviewed_at`, `summary`, a nonempty `claims` list of `claim` / `support` pairs, and `subjects` as project-relative `path` / actual `sha256` pairs. Bind current `findings.md`, the manuscript under `paper/`, and inspected dependencies. Missing required artifacts prevent a complete proposal. Core-owned `review.status=passed` is separate from the audit file; this review does not replace the evidence audit or completion gates.
 
 ## Checks
 

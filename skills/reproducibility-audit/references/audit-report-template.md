@@ -43,4 +43,4 @@ Record the level performed for each check. Never label a check at a level that w
 
 ## Proposal JSON
 
-When requested, propose an evidence-audit JSON with `schema_version: 1`, actual `reviewer`, `reviewed_at`, `summary`, and `subjects` of project-relative `path` plus actual `sha256`. Bind `findings.md`, the current protocol, separate raw evidence under `experiments/` or `data/`, and inspected dependencies. Missing required subjects remain blockers; never invent hashes.
+When requested, propose an evidence-audit JSON with `schema_version: 2`, actual `reviewer`, `reviewed_at`, `summary`, a nonempty `claims` list of `claim` / `support` pairs, and `subjects` of project-relative `path` plus actual `sha256`. Bind `findings.md`, any frozen protocol, separate primary evidence under `experiments/`, `data/`, `literature/` or `reports/`, and inspected dependencies. Missing required subjects remain blockers; never invent hashes.

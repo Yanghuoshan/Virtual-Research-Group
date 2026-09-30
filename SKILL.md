@@ -128,7 +128,7 @@ At task creation, the core explicitly classifies the actual work, never inferrin
 
 These three activity values are safety declarations, not new phases or a skill router. The helper cannot detect dishonest labeling; the core must inspect the objective, permitted tools and actual operations. Analysis that needs external retrieval still requires user approval for that access. Theoretical validation uses proof obligations and independent checking rather than assuming training or GPUs.
 
-Writing research conclusions requires a verified audit JSON binding `findings.md`, the current protocol, and raw evidence under `experiments/` or `data/`. **Project completion** (the separate `phase → complete` decision) additionally requires a passed final review binding current findings and the manuscript; accepting an individual task's output never triggers that check. Audit `subjects` are path/hash pairs. Changed subjects invalidate approval. Specialists may produce audit proposals; only the core sets approval state after checking their coverage and reasoning. Hash checks cannot prove truth or detect omitted dependencies.
+Writing research conclusions requires a verified audit JSON binding `findings.md`, any frozen protocol, and primary evidence under `experiments/`, `data/`, `literature/` or `reports/`. **Project completion** (the separate `phase → complete` decision) additionally requires a passed final review binding current findings and a `paper/` or `reports/` artifact; accepting an individual task's output never triggers that check. Audit `subjects` are path/hash pairs. Changed subjects invalidate approval. Specialists may produce audit proposals; only the core sets approval state after checking their coverage and reasoning. Hash checks cannot prove truth or detect omitted dependencies.
 
 ## Core State Controls
 
@@ -140,14 +140,14 @@ Writing research conclusions requires a verified audit JSON binding `findings.md
 | `evaluation` (four fields) | `set-evaluation` | Prerequisite for assigning an `experiment` task |
 | `protocol` | `set-protocol` | Freezes a nonempty artifact under `experiments/` |
 | `evidence_review`, `review` | `set-audit` | `verified`/`passed` are checked against the audit file before they are recorded |
-| `blockers` | `blockers` | Open blockers stop task creation, assignment, completion and phase decisions until resolved. A task created with `--resolves` naming a blocker may be created, assigned and completed while that blocker is open; completing the task removes the blocker |
-| `status` (`active`, `stopped`) | `project-status` | `stopped` closes new tasks, handoffs, phase and gate decisions; terminal until reactivated |
+| `blockers` | `blockers` | Unresolved blockers halt work and phase changes. A `--resolves` task can proceed; if blocked, the blocker resumes, and completion removes it |
+| `status` (`active`, `stopped`) | `project-status` | `stopped` closes task creation, acceptance, task-status, handoffs, phase and gate decisions until reactivated |
 
-Audits live under `reviews/` and follow `templates/evidence-audit.json`; a changed subject invalidates the recorded approval. Stopping preserves tasks, audits and evidence references and never completes, cancels or advances anything; it requires the active executor to have stopped first, and setting the status the project already has is refused as a non-decision. `stopped` is terminal until `project-status` reactivates it. Editing these fields by hand is not a recorded decision and breaks the audit trail. A receipt must carry `accepted_at` beside the four `*_checked` flags, and acceptance rechecks the packet, so an output the executor created before the receipt was recorded is rejected as an existing path.
+Audits under `reviews/` follow `templates/evidence-audit.json`; changed subjects invalidate approval. Stop only after executors exit; stopping preserves records and prevents task changes until reactivation. Repeating a status is refused. Hand-editing state breaks the audit trail. Receipts require `accepted_at` and four `*_checked` flags. Acceptance rechecks core, session and output boundaries but permits outputs written after packet generation.
 
 ## Session Lifecycle
 
-Only the core creates, resumes, retires, or replaces sessions. Session choice is made per assignment, not automatically once per phase or once per task. Keep the core's decision history separate from specialist working history and allow only one running executor.
+Only the core creates, resumes, retires, or replaces sessions. Session choice is made per assignment, not automatically once per phase or once per task. Keep the core's decision history separate from specialist working history; allow multiple running tasks with disjoint output scopes, but never reuse a session while its task is running.
 
 | Mode | Appropriate conditions | Required action |
 |---|---|---|
