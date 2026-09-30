@@ -37,7 +37,7 @@ class TaskLifecycleTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def receipt(self, packet, session_id='host:s1', **changes):
-        result = dict(schema_version=4, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=5, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00',
                       actual_role=packet['target_role']['id'], actual_model='provider/model-a',
@@ -131,7 +131,7 @@ class TaskLifecycleTests(unittest.TestCase):
         self.accept(self.packet())
         state = self.state()
         self.assertEqual(state['phase'], 'scope')
-        self.assertEqual(state['active_task'], 't1')
+        self.assertEqual(state['active_tasks'], ['t1'])
         self.assertEqual(state['tasks']['t1']['status'], 'running')
 
     def test_same_task_can_continue_in_new_session_and_model(self):
@@ -145,7 +145,7 @@ class TaskLifecycleTests(unittest.TestCase):
         next_packet = self.packet(outputs=['hypotheses/t1-v2.md'], model='provider/model-b')
         self.accept(next_packet, session_id='host:s2', actual_model='provider/model-b')
         state = self.state()
-        self.assertEqual(state['active_task'], 't1')
+        self.assertEqual(state['active_tasks'], ['t1'])
         self.assertEqual(state['phase'], 'scope')
         self.assertEqual(len(state['tasks']['t1']['assignments']), 2)
 
@@ -156,14 +156,37 @@ class TaskLifecycleTests(unittest.TestCase):
             self.update('blocked')
         with self.assertRaises(ValueError):
             self.update('planned')
-        self.assertEqual(self.state()['active_task'], 't1')
+        self.assertEqual(self.state()['active_tasks'], ['t1'])
 
-    def test_two_tasks_cannot_run_at_once(self):
+    def test_disjoint_tasks_run_in_parallel_until_completion(self):
         self.create('t1')
         self.create('t2')
         self.accept(self.packet())
+        # A second executor may start while the first runs, with a disjoint output scope.
+        second = self.packet('t2', outputs=['literature/t2-v1.md'])
+        self.accept(second, session_id='host:s2')
+        state = self.state()
+        self.assertEqual(state['active_tasks'], ['t1', 't2'])
+        self.assertEqual(state['phase'], 'scope')
+
+    def test_overlapping_output_scopes_are_rejected_at_handoff(self):
+        self.create('t1')
+        self.create('t2')
+        self.create('t3')
+        self.accept(self.packet())
+        # t2 takes a disjoint file; t3 wants the exact file t1 is writing.
+        second = self.packet('t2', outputs=['hypotheses/other-v1.md'])
+        self.accept(second, session_id='host:s2')
+        with self.assertRaisesRegex(ValueError, 'conflicts with the running task t1'):
+            self.tool.handoff(ROOT, self.project, 't3', 'Overlaps the running scope',
+                              ['research-brief.md'], model='current', outputs=['hypotheses/t1-v1.md'])
+
+    def test_one_task_never_has_two_executors(self):
+        self.create('t1')
+        self.accept(self.packet())
+        # The same task is running; a second assignment must be refused.
         with self.assertRaises(ValueError):
-            self.packet('t2')
+            self.packet()
 
     def test_submitted_is_not_completed_or_phase_complete(self):
         self.create()
@@ -261,8 +284,8 @@ class TaskLifecycleTests(unittest.TestCase):
         packet = self.packet('t2', outputs=['hypotheses/t2.md'], session_mode='reuse',
                              session_reason='Related task with compatible history', resume_session_id='host:s1')
         self.accept(packet)
-        self.assertEqual(self.state()['active_task'], 't2')
-        self.assertEqual(self.state()['tasks']['t2']['assignments'][0]['receipt']['actual_session_id'], 'host:s1')
+        self.assertEqual(self.state()['active_tasks'], ['t2'])
+        self.assertEqual(self.state()['tasks']['t2']['assignments'][0]['actual_session_id'], 'host:s1')
 
     def test_receipt_cannot_authorize_a_changed_packet(self):
         self.create()
@@ -332,7 +355,7 @@ class TaskLifecycleTests(unittest.TestCase):
                                             '--reason', 'Scope exit criteria checked', '--evidence', 'research-brief.md']), 0)
         state = self.state()
         self.assertEqual(state['phase'], 'ideation')
-        self.assertIsNone(state['active_task'])
+        self.assertEqual(state['active_tasks'], [])
         self.assertTrue(all(t['status'] == 'completed' for t in state['tasks'].values()))
 
     def test_cli_separates_task_creation_handoff_and_phase(self):
@@ -376,7 +399,7 @@ class GateCommandTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:gate'):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        return {'schema_version': 4, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
+        return {'schema_version': 5, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
                 'source_revision': packet['source_revision'], 'packet_sha256': digest, 'accepted': True,
                 'accepted_at': '2026-01-01T00:00:00+00:00', 'actual_role': packet['target_role']['id'],
                 'actual_model': 'provider/model-a', 'actual_session_mode': packet['session']['mode'],
@@ -406,8 +429,12 @@ class GateCommandTests(unittest.TestCase):
         return path
 
     def audit(self, subjects, name='reviews/evidence-audit.json', status='verified', kind='evidence'):
-        payload = {'schema_version': 1, 'reviewer': 'core', 'reviewed_at': '2026-01-01T00:00:00+00:00',
-                   'summary': 'Audit binds findings, protocol and raw evidence', 'subjects': []}
+        payload = {'schema_version': 2, 'reviewer': 'core',
+                   'reviewed_at': '2026-01-01T00:00:00+00:00',
+                   'summary': 'Audit binds findings, protocol and raw evidence',
+                   'claims': [{'claim': 'The reported gain is bound to raw evidence',
+                               'support': 'Run artifacts under experiments/'}],
+                   'subjects': []}
         for subject in subjects:
             payload['subjects'].append({'path': subject, 'sha256': self.digest(subject)})
         target = self.project / name

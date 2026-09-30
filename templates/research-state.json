@@ -1,9 +1,9 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "question": "",
   "phase": "scope",
   "tasks": {},
-  "active_task": null,
+  "active_tasks": [],
   "history": [],
   "status": "active",
   "revision": 0,

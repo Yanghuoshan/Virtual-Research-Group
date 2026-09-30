@@ -34,7 +34,10 @@ class ReviewGuardTests(unittest.TestCase):
         protocol = self.artifact('experiments/H1/protocol.md')
         raw = self.artifact('experiments/H1/runs/run-001/results/metrics.json', '{"value": 0.6}')
         findings = self.artifact('findings.md', 'A bounded finding with raw evidence')
-        audit = {'schema_version': 1, 'subjects': [protocol, raw, findings], 'summary': 'Independent evidence check'}
+        audit = {'schema_version': 2, 'reviewer': 'core', 'reviewed_at': '2026-01-01T00:00:00+00:00',
+                  'claims': [{'claim': 'The reported gain is bound to raw evidence',
+                              'support': 'Run artifacts under experiments/'}],
+                  'subjects': [protocol, raw, findings], 'summary': 'Independent evidence check'}
         ref = self.artifact('reviews/evidence-audit.json', json.dumps(audit))
         ref['status'] = 'verified'
         self.mutate(self.project / 'research-state.json', lambda x: x.update(
@@ -113,7 +116,10 @@ class ReviewGuardTests(unittest.TestCase):
         self.audited()
         paper = self.artifact('paper/draft.md')
         findings = {'path': 'findings.md', 'sha256': self.tool.digest(self.project / 'findings.md')}
-        review = self.artifact('reviews/final.json', json.dumps({'schema_version': 1, 'subjects': [paper, findings]}))
+        review = self.artifact('reviews/final.json', json.dumps(
+            {'schema_version': 2, 'reviewer': 'core', 'reviewed_at': '2026-01-01T00:00:00+00:00',
+             'claims': [{'claim': 'The manuscript states the bounded result', 'support': 'Draft under paper/'}],
+             'subjects': [paper, findings]}))
         review['status'] = 'passed'
         self.mutate(self.project / 'research-state.json', lambda x: x.update(phase='review', review=review))
         self.tool.update_task(ROOT, self.project, 't1', 'cancelled', 'Not needed', [])

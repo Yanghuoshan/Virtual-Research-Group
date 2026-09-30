@@ -34,7 +34,7 @@ Freeze `protocol.md` before execution. A changed design requires a new versioned
 
 Preserve negative runs, errors, exploratory discoveries and superseded analyses. Never overwrite raw evidence to match a manuscript. New interpretations get new versioned artifacts; previous versions remain inspectable.
 
-Audit records are JSON files under `reviews/`, written from `templates/evidence-audit.json` and recorded by `set-audit`. They bind subject paths and hashes, so modification invalidates approval until re-review. An evidence audit binds at least `findings.md`, the frozen protocol and raw evidence under `experiments/` or `data/`; a final review binds `findings.md` and the manuscript under `paper/`. Evidence a verified claim cites must appear in the audited subjects, because the script cannot infer omitted dependencies.
+Audit records are JSON files under `reviews/`, written from `templates/evidence-audit.json` and recorded by `set-audit`. They bind subject paths and hashes, so modification invalidates approval until re-review. Audit schema 2 requires a nonempty reviewer, an ISO 8601 `reviewed_at`, and at least one verified claim with its support. An evidence audit binds at least `findings.md`, the frozen protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/`; a final review binds `findings.md` and primary artifacts under `paper/` or `reports/`. Evidence a verified claim cites must appear in the audited subjects, because the script cannot infer omitted dependencies.
 
 ## Large Artifacts
 

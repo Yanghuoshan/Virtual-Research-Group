@@ -7,7 +7,7 @@
 - **Updated:** (local time, ISO 8601, written when the core last made a decision)
 - **Status:** active or stopped
 - **Phase:** current research phase
-- **Active task:** task id, one-line objective, selected skill, role; or none
+- **Active tasks:** each running task id with a one-line objective; or none
 - **Open blockers:** each open blocker in one line; or none
 - **Last decision:** what the core decided and why, in its own words
 - **Next:** what the core believes should happen next, and what it is waiting for

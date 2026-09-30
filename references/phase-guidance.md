@@ -42,7 +42,7 @@ These are optional examples, not a fixed checklist. Each task has a distinct art
 
 A citation check during writing or a split audit during execution is another task, not a project-wide phase change. Tasks may remain planned or blocked across a justified phase change; their creation phase is provenance, not a routing restriction.
 
-Stop the active executor before changing phase, and keep the project status `active`; a stopped project records no phase decision, and open blockers stop phase decisions until resolved. To close research, resolve or explicitly cancel all open tasks and recheck both evidence and final-review audits.
+Stop the running executors before changing phase, and keep the project status `active`; a stopped project records no phase decision, and unresolved blockers stop phase decisions until resolved or being resolved by an open task. To close research, resolve or explicitly cancel all open tasks and recheck both evidence and final-review audits.
 
 `stopped` is a project status value, not a phase, and is set by `project-status`. It closes new tasks, handoffs, phase and gate decisions while preserving tasks, audits and evidence. Planning-only work may stop this way without claiming completed research, and only `project-status --to active` reopens the project.
 

@@ -197,7 +197,7 @@ class FrameworkTests(unittest.TestCase):
     def test_stopped_or_busy_project_cannot_handoff(self):
         self.initialize()
         original = self.state()
-        busy = dict(original, active_task='t1')
+        busy = dict(original, active_tasks=['t1'])
         busy['tasks']['t1']['status'] = 'running'
         for changed in (dict(original, status='stopped'), busy):
             self.save(changed)

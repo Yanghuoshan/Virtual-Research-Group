@@ -23,11 +23,13 @@ Explicit core commands atomically save state with revision checks. They do not r
 
 Evidence gates follow actual task activity, not project phase. An experiment in scope still requires research mode and a frozen protocol; a citation check in write does not need to pretend the project changed phase. Verified conclusions require audits wherever they are produced. Labeling is a core judgment, not an automatic classifier or security sandbox. Closure additionally checks all tasks are closed and the final review remains valid.
 
-## Migration from Schema 1, 2 or 3
+## Migration from Schema 1, 2, 3 or 4
 
 No automatic migration is performed. Old state, packets and receipts are rejected explicitly. Do not merely replace the schema version.
 
-Migrating schema 3 to schema 4 is a reduction: drop the removed fields (`project_id`, `authorization`, `allowed_tools`, `budget`, `next_action`); record any prior experiment authorization as the evidence cited in a fresh `authorize --mode research` decision; express a paused project as open blockers instead of a status value, since blockers now also stop task creation; and reissue current packets and receipts at schema 4, because their shapes lost the authorization and budget snapshots.
+Migrating schema 3 to schema 4 is a reduction: drop the removed fields (`project_id`, `authorization`, `allowed_tools`, `budget`, `next_action`); record any prior experiment authorization as the evidence cited in a fresh `authorize --mode research` decision; express a paused project as open blockers instead of a status value; and reissue current packets and receipts at schema 4, because their shapes lost the authorization and budget snapshots.
+
+Migrating schema 4 to schema 5 is also a reduction plus one rename: replace the `active_task` single-running pointer with an `active_tasks` list (parallel tasks hold mutually exclusive output scopes); move each assignment's full packet/receipt JSON out of the state into `handoffs/`, keeping only the compact record the helper writes; rewrite audit records at schema 2 with a nonempty reviewer, an ISO 8601 `reviewed_at` and verified claims. Receipts recorded before acceptance-timing was relaxed stay valid; only the `accepted_at` format is now enforced as ISO 8601.
 
 1. Back up the project and evidence. Reconcile all host sessions and external jobs; stop or safely checkpoint live work before transferring ownership.
 2. Prepare schema-4 state from the template, preserving actual question, current project phase, protocol and valid audit references. A previous handoff target is not proof the phase goal was achieved.

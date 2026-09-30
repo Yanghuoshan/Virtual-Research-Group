@@ -22,7 +22,7 @@ core decision          host facility                    back to core
 1. **Issue.** The core runs `handoff`, saves the printed packet under `handoffs/` at a new path, and rewrites the current brief in `research-log.md`. No host interaction yet.
 2. **Dispatch.** The host spawns a fresh subagent/task session carrying only the minimal context: the packet, the one selected skill, the evidence paths with hashes, and the output boundaries. A fork inheriting the core's full conversation is not isolation. Session choice (`fresh`/`reuse`/`current`) follows the session lifecycle policy in the core contract.
 3. **Execute and self-report.** The subagent performs the bounded task, writes artifacts strictly inside the assigned output scope, then fills `templates/handoff-receipt.json` from its own actual execution facts (below).
-4. **Accept.** The core verifies the receipt against the task contract and runs `accept`. Record the receipt before the executor writes artifacts - acceptance re-derives the packet and rejects output paths that already exist; artifact inspection happens at submission, not here. The task becomes `running` in state; the brief is updated. If verification fails, the core records a blocker instead of accepting.
+4. **Accept.** The core verifies the receipt against the task contract and runs `accept`. The executor may already have written artifacts inside its assigned scope by the time the receipt is recorded; that is expected and not an error - output freshness is enforced at packet generation, and artifact inspection happens at submission, not here. The task becomes `running` in state; the brief is updated. If verification fails, the core records a blocker instead of accepting.
 
 The loop then continues with `task-status` (submitted after the executor stops, completed after core acceptance), each step rewriting the brief. Every arrow in the diagram is a point where a human can read the brief, open the artifacts, and intervene.
 
@@ -48,7 +48,7 @@ Automation is the default for mechanics; judgment points stay with the core, and
 | Packet issuance (before `handoff`) | Core decides | Human reviews objective, skill, channel permissions |
 | Receipt acceptance (before `accept`) | Core verifies | Human inspects packet + receipt digest match |
 | Completion (before `task-status completed`) | Core inspects artifacts | Human spot-checks acceptance criteria |
-| Any time | - | `blockers` pauses task creation/assignment/completion/phase; `project-status --to stopped` halts everything (terminal until reactivated); rejected submissions return `submitted → planned` |
+| Any time | - | `blockers` pauses task creation/assignment/completion/phase (a task created with `--resolves` may still work on its blocker); `project-status --to stopped` halts everything (terminal until reactivated); rejected submissions return `submitted → planned` |
 
 The current brief in `research-log.md` is the primary human window: it states where the project is, what was just decided and why, and what the core intends next. A human who reads only the brief and the open blockers list always knows enough to choose an intervention.
 

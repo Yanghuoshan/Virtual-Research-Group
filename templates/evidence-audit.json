@@ -1,8 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reviewer": null,
   "reviewed_at": null,
-  "summary": "Record claims, verification procedures, limitations, and dependencies; do not treat a blank template as an approved audit. Schema 1 is the current audit schema; version 3 governs research state, packets and receipts instead.",
+  "summary": "Record claims, verification procedures, limitations, and dependencies. Schema 2 requires a nonempty reviewer, an ISO 8601 reviewed_at, and at least one verified claim with its support; a blank template is never an approved audit.",
+  "claims": [],
   "subjects": [],
-  "requirements": "Each subject contains path and sha256. Evidence audits bind at least findings.md, the current protocol, and separate raw evidence (the protocol itself does not count); final reviews bind at least findings.md and the manuscript. List all actual dependencies; the script cannot infer missing dependencies."
+  "requirements": "Each claim records the claim text and the support it was given. Each subject contains path and sha256. Evidence audits bind at least findings.md, the current protocol when one is frozen, and separate primary artifacts under experiments/, data/, literature/ or reports/ (the protocol itself does not count); final reviews bind at least findings.md and primary artifacts under paper/ or reports/. List all actual dependencies; the script cannot infer missing dependencies."
 }

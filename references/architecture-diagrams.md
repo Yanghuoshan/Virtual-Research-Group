@@ -16,7 +16,7 @@ graph TD
     end
 
     subgraph HELPER["Deterministic helper (scripts/research.py)"]
-        CMD[14 explicit core commands<br/>task / handoff / accept / task-status / phase<br/>authorize / set-evaluation / set-protocol / set-audit<br/>blockers / project-status / init / validate / skills<br/>3 read-only: handoff, validate, skills]
+        CMD[15 explicit core commands<br/>task / handoff / accept / task-status / phase<br/>authorize / set-evaluation / set-protocol / set-audit<br/>blockers / project-status / init / validate / skills / status<br/>4 read-only: handoff, validate, skills, status]
     end
 
     subgraph SPEC["Specialist skills (flat, one task each)"]

@@ -11,7 +11,7 @@
 | `packet_id` | One assignment of a task | One request and its matching acceptance receipt |
 | `actual_session_id` | Opaque host execution session | May span compatible tasks or be replaced within a task |
 
-`created_phase` is task provenance. `project_phase` in a packet is a snapshot, not a target phase. Neither chooses a skill. `active_task` references the sole running task ID; planned, blocked or submitted tasks are not active executors.
+`created_phase` is task provenance. `project_phase` in a packet is a snapshot, not a target phase. Neither chooses a skill. `active_tasks` lists the running executors; their output scopes are mutually exclusive, and planned, blocked or submitted tasks are not active executors.
 
 ## What a Packet Binds
 

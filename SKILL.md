@@ -9,7 +9,7 @@ One decision layer, one flat collection of specialist skills. Read this document
 
 ## Core Decision Authority
 
-Only the core selects hypotheses, phases, skills, roles, models, tool permissions, output paths, acceptance criteria, and the next task. Only the core initializes the project, freezes protocols, accepts results, updates global findings, and closes or pauses research.
+Only the core selects hypotheses, phases, skills, roles, models, tool permissions, output paths, acceptance criteria, and the next task. Only the core initializes the project, freezes protocols, accepts results, updates global findings, and closes or stops research.
 
 - Maintain sole write ownership of `research-state.json`, `research-brief.md`, `research-log.md`, `findings.md`, and `handoffs/`. Specialists return proposed findings in task-local artifacts, never edit these global records.
 - Delegate one bounded task to one skill at a time. A role describes responsibility, not a fixed skill bundle. Choose a model explicitly; never derive skills from a domain profile or merge role presets.
@@ -28,7 +28,7 @@ Session changes do not change task identity. A task can continue across several 
 
 ## Task Lifecycle
 
-Keep `tasks` and append-only decision `history` in `research-state.json`; no extra routing registry or manager is needed. `active_task` is the ID of the sole running task, not a packet or session object. Multiple planned, blocked and submitted tasks may coexist.
+Keep `tasks` and append-only decision `history` in `research-state.json`; no extra routing registry or manager is needed. `active_tasks` lists the running executors. Several tasks may run in parallel; their assigned output scopes are mutually exclusive, and one task has at most one executor at a time. Multiple planned, blocked and submitted tasks may coexist.
 
 1. **Create:** the core registers a `planned` task with a unique lowercase ID, such as `t17`, and an immutable work contract. Its `created_phase` is informational. Specify whether independent review is required at creation, not per retry.
 2. **Assign:** generate a packet for that task with current evidence, versioned output paths, requested model and session choice. Packet generation has no state side effects. The same task may receive multiple packets, but only one executor may run at a time.
@@ -71,7 +71,7 @@ Initialize only the four root documents; create other directories when a task ne
 
 ## Progress Visibility and Host Bridge
 
-The current brief at the top of `research-log.md` is the human's primary window. The core rewrites it, in its own words, at every core decision: local timestamp, status, phase, active task, open blockers, the decision just made and why, and the intended next step. The scripts never generate it; `research-state.json` stays authoritative, and a brief that contradicts the state is a defect the watchdog reports. A human reading only the brief must always know where the agent is, why, and how to intervene.
+The current brief at the top of `research-log.md` is the human's primary window. The core rewrites it, in its own words, at every core decision: local timestamp, status, phase, active tasks, open blockers, the decision just made and why, and the intended next step. `research-state.json` stays authoritative, and a brief that contradicts the state is a defect the watchdog reports; a human reading only the brief must know where the agent is, why, and how to intervene.
 
 How a host agent executes packets in isolated sessions, fills receipts, and how a scheduled read-only watchdog supervises the loop for stalls and drift, is defined in [host bridge](references/host-bridge.md). A one-page visual map of layers, phases, the evidence pipeline and the supervision loop is in [framework diagrams](references/architecture-diagrams.md).
 
@@ -79,7 +79,7 @@ How a host agent executes packets in isolated sessions, fills receipts, and how 
 
 1. Read the current question, state, accepted findings, last decision, and evidence.
 2. Identify the smallest unresolved research question or artifact requirement. State why it matters now.
-3. Inspect `skills/*/SKILL.md` descriptions, then read the candidate's full input, method, output, check, and boundary contract. Optional `scripts/research.py skills` lists entries directly from disk without a registration file.
+3. Inspect `skills/*/SKILL.md` descriptions, then read the candidate's full input, method, output, check, and boundary contract. Optional `scripts/research.py skills` lists entries directly from disk without a registration file. External specialists under `extensions/` follow the same contract and are selected by name like built-ins; a broken one degrades to a warning, never a bundle failure ([extending skills](references/extending-skills.md)).
 4. Register a task with an objective, explicit activity, one applicable skill, role and acceptance criterion. Select an existing planned task instead when continuing the same contract. No suitable skill means report the gap; do not pretend an evaluator also trains models.
 5. Prepare an assignment for that task: select model/session using the Session Lifecycle policy, provide evidence and fresh output paths, then invoke the host. Record the actual receipt before work. Inspect the returned submission and separately decide completion or rework. Neither assignment nor task completion advances phase.
 
@@ -90,7 +90,7 @@ External capabilities such as literature search, dataset lookup or experiment an
 - Declare the permitted servers and tool names in the task objective. The objective is the single channel through which tool limits reach the executor; there is no separate state field.
 - Network or paid access requires explicit user approval. Record it as the authorization evidence cited when the core sets research mode, and name the approved services in the task objective. The helper does not enforce approval, so the core must check it.
 - A skill may use only the assigned channel and tools. Installing servers, switching providers, purchasing access or broadening a search are blockers returned to the core.
-- Record provenance for external results: source URI, retrieval date, and a digest or identifier where available. Preserve raw responses under the assigned output path instead of only a summary.
+- Record provenance for external results: source URI, retrieval date, and a digest where available; preserve raw responses under the assigned output path instead of only a summary.
 - An external response is metadata evidence, not a scientific endorsement. Treat coverage limits and version drift as recorded limitations, and re-verify before a conclusion depends on it.
 
 Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; running a frozen protocol in an assigned sandbox calls for `experiment-execution`; cleaning run outputs into checksummed analysis tables calls for `data-processing`; pre-specified statistical testing calls for `statistical-analysis`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
@@ -140,7 +140,7 @@ Writing research conclusions requires a verified audit JSON binding `findings.md
 | `evaluation` (four fields) | `set-evaluation` | Prerequisite for assigning an `experiment` task |
 | `protocol` | `set-protocol` | Freezes a nonempty artifact under `experiments/` |
 | `evidence_review`, `review` | `set-audit` | `verified`/`passed` are checked against the audit file before they are recorded |
-| `blockers` | `blockers` | Open blockers stop task creation, assignment, completion and phase decisions until resolved |
+| `blockers` | `blockers` | Open blockers stop task creation, assignment, completion and phase decisions until resolved. A task created with `--resolves` naming a blocker may be created, assigned and completed while that blocker is open; completing the task removes the blocker |
 | `status` (`active`, `stopped`) | `project-status` | `stopped` closes new tasks, handoffs, phase and gate decisions; terminal until reactivated |
 
 Audits live under `reviews/` and follow `templates/evidence-audit.json`; a changed subject invalidates the recorded approval. Stopping preserves tasks, audits and evidence references and never completes, cancels or advances anything; it requires the active executor to have stopped first, and setting the status the project already has is refused as a non-decision. `stopped` is terminal until `project-status` reactivates it. Editing these fields by hand is not a recorded decision and breaks the audit trail. A receipt must carry `accepted_at` beside the four `*_checked` flags, and acceptance rechecks the packet, so an output the executor created before the receipt was recorded is rejected as an existing path.
@@ -181,4 +181,4 @@ Request the model per assignment by matching capability to the task's judgment d
 
 Roles describe responsibilities; skills provide methods; models and sessions are execution choices. None is a substitute for a task or phase. Specialists only return work, checks and blockers. Only the core accepts outputs, updates global findings, decides a retry, and judges phase exit criteria.
 
-The optional helper now performs explicit core state operations (`task`, `authorize`, `set-evaluation`, `set-protocol`, `set-audit`, `blockers`, `project-status`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` remains read-only. No command creates a model session, starts experiments, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).
+The optional helper now performs explicit core state operations (`task`, `authorize`, `set-evaluation`, `set-protocol`, `set-audit`, `blockers`, `project-status`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` and the progress board `status` remain read-only. No command creates a model session, starts experiments, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).

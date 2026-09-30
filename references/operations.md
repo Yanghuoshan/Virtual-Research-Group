@@ -6,7 +6,8 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 
 | Command | Purpose | Changes project state? |
 |---|---|---|
-| `validate`, `skills` | Check the bundle or discover direct skills | No |
+| `validate`, `skills` | Check the bundle or discover direct and extension skills | No |
+| `status` | Print a read-only progress board | No |
 | `init` | Create four planning documents in a new directory | Creates a project; never overwrites |
 | `authorize` | Set research mode, the single experiment gate | Yes, not phase |
 | `set-evaluation` | Record the four evaluation fields | Yes, not phase |
@@ -14,7 +15,7 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 | `set-audit` | Record an evidence or final review audit from `reviews/` | Yes, not phase |
 | `blockers` | Add or resolve a project blocker | Yes, not phase |
 | `project-status` | Activate or stop the project | Yes, only this changes project status |
-| `task` | Register a stable task contract | Yes, not phase |
+| `task` | Register a stable task contract, optionally with `--resolves` | Yes, not phase |
 | `handoff` | Print an assignment for a registered task | No |
 | `accept` | Validate and record an actual host receipt | Yes, starts the task; not phase |
 | `task-status` | Record submission, blocking, rework, completion or cancellation | Yes, not phase |
@@ -40,7 +41,11 @@ python3 scripts/research.py task --project ./projects/study --task scope-2 --obj
 
 Both tasks are planned in `scope`; no phase change occurs. Likewise create as many ideation tasks as needed after a separate phase decision. A task's objective, activity, skill, role and acceptance criteria are its fixed contract. New objectives require new IDs; local rework keeps the existing ID.
 
-Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires research mode, all four evaluation fields and the matching frozen protocol; `conclusions` requires a verified evidence audit (`evidence_review.status == verified`). These gates apply in every project phase, are opened by the gate commands below, and the core is responsible for honest classification and all additional tool/service permissions.
+Several tasks may run at the same time; a new assignment is refused only while another running task holds an overlapping output scope. One task still has at most one executor at a time.
+
+A task created with `--resolves "Missing baseline"` declares that it exists to fix that blocker. Such a task may be created, assigned and completed while the blocker is open, so a missing prerequisite no longer freezes the whole project; completing the task removes the blocker automatically, and the core can re-add it if the accepted output does not actually fix it.
+
+Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires research mode, all four evaluation fields and the matching frozen protocol; `conclusions` requires a verified evidence audit (`evidence_review.status == verified`) binding findings, the current protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/`. These gates apply in every project phase, are opened by the gate commands below, and the core is responsible for honest classification and all additional tool/service permissions.
 
 External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective, for example "use the literature search server, `search` and `fetch` only". Leaving the project network or using paid access requires explicit user approval, recorded as the evidence cited when research mode is set and named in the task objective; the helper does not enforce it. Preserve raw responses with source URI and retrieval date rather than only a summary.
 
@@ -69,7 +74,7 @@ python3 scripts/research.py set-audit --project ./projects/study --kind evidence
   --status verified --reason "Audit binds findings, protocol and raw evidence"
 ```
 
-An evidence audit must bind `findings.md`, the frozen protocol and raw evidence under `experiments/` or `data/`; a final review must bind `findings.md` and the manuscript under `paper/`. Every evidence path cited by a conclusions task or by `phase --to complete` must already appear in the audited subjects, so an unaudited file cannot ride along with a verified claim.
+An evidence audit must bind `findings.md`, the frozen protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/` (survey and report projects may close on `literature/` or `reports/` evidence); a final review must bind `findings.md` and primary artifacts under `paper/` or `reports/`. Audit records use schema 2: a nonempty reviewer, an ISO 8601 `reviewed_at`, and at least one verified claim with its support. Every evidence path cited by a conclusions task or by `phase --to complete` must already appear in the audited subjects, so an unaudited file cannot ride along with a verified claim.
 
 `stopped` closes new tasks, handoffs, phase decisions and gate commands alike; only `project-status --to active` reopens it. It requires the active executor to have stopped first, and setting the status the project already has is refused. While a project stays active, open blockers stop task creation, assignment, completion and phase decisions, so pausing work without closing the project is expressed as blockers rather than as a status value.
 
@@ -101,7 +106,7 @@ After saving both files, the core can record acceptance:
 python3 scripts/research.py accept --project ./projects/study --packet handoffs/scope-1-request.json --receipt handoffs/scope-1-receipt.json
 ```
 
-This requires real receipt values; a copied blank template fails. It also re-derives the packet from current state, so an output path the executor already created is rejected as an existing path; record the receipt before the executor writes artifacts. The task becomes running, `active_task` becomes its ID, and phase stays `scope`. The packet/receipt are retained inside that task's assignment history. Changed state, input evidence, contract or packet content invalidates acceptance. Only one task may run at a time. Host IDs are not invented; absent IDs require an explicit limitation and cannot be resumed. No helper can prove host isolation or the truth of a receipt.
+This requires real receipt values; a copied blank template fails. Acceptance validates the receipt against the current state and the live task contract directly; the executor may already have written artifacts inside its assigned scope by the time the receipt is recorded, and that is not an error - output freshness is enforced at `handoff` time, artifact inspection happens at submission. The task becomes running and joins `active_tasks`; phase stays `scope`. A compact record of the attempt (packet id and digest, skill, role, model, session, output scopes, evidence hashes) is kept inside that task's assignment history; the full packet and receipt JSON stay saved under `handoffs/`. Changed state, input evidence or a drifted contract invalidates acceptance. Host IDs are not invented; absent IDs require an explicit limitation and cannot be resumed. No helper can prove host isolation or the truth of a receipt.
 
 ## Submit, Accept, or Continue the Same Task
 
@@ -130,4 +135,4 @@ Run this only when the cited evidence actually warrants the decision, not automa
 
 ## Compatibility
 
-State, packet and receipt schema are now 4. Schema 3 and older are rejected; do not just change the version number. Schema 4 removes the authorization flags (research mode is the single experiment gate), the `paused` status (open blockers now also stop task creation) and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields. See [migration](architecture.md). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.
+State, packet and receipt schema are now 5. Schema 4 and older are rejected; do not just change the version number. Schema 4 dropped the authorization flags (research mode is the single experiment gate), the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration](architecture.md). Schema 5 introduces parallel tasks with mutually exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.

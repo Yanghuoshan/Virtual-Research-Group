@@ -15,7 +15,8 @@ SPEC.loader.exec_module(TOOL)
 # Key sets are asserted exactly, so an added routing or registry field fails loudly
 # instead of being invisible to a single "not in" check.
 TASK_KEYS = {'task_id', 'created_phase', 'objective', 'activity', 'skill', 'role',
-             'acceptance_criteria', 'independent_review', 'status', 'assignments', 'submission'}
+             'acceptance_criteria', 'independent_review', 'resolves', 'status',
+             'assignments', 'submission'}
 PACKET_KEYS = {'schema_version', 'packet_id', 'task_id', 'created_at', 'source_revision',
                'state_sha256', 'core_sha256', 'project_phase', 'objective', 'activity', 'skill',
                'target_role', 'requested_model', 'session', 'summary', 'acceptance_criteria', 'evidence',
@@ -58,9 +59,14 @@ class FlatArchitectureTests(unittest.TestCase):
                             ['research-brief.md'], **options)
 
     def test_intermediate_routing_layers_are_removed(self):
-        for name in ('domains', 'core', 'adapters', 'catalog.json', 'library', 'extensions'):
+        # extensions/ is the sanctioned external-skill directory, not a routing layer.
+        for name in ('domains', 'adapters', 'catalog.json', 'library'):
             with self.subTest(name=name):
                 self.assertFalse((ROOT / name).exists(), f'Redundant layer remains: {name}')
+        for name in ('domains', 'adapters', 'library', 'routing'):
+            with self.subTest(name=name):
+                self.assertFalse((ROOT / 'extensions' / name).exists(),
+                                 'A routing layer is disguised as an extension')
 
     def test_core_defines_workspace_and_decision_authority(self):
         text = (ROOT / 'SKILL.md').read_text()
@@ -502,6 +508,9 @@ class FlatArchitectureTests(unittest.TestCase):
         cases = (
             ('literature-review', 'analyst', 'literature/review-v1.md', False),
             ('experimental-design', 'methodologist', 'hypotheses/design-v1.md', False),
+            ('research-implementation', 'experimenter', 'src/implementation-v1.md', False),
+            ('results-synthesis', 'analyst', 'reports/synthesis-v1.md', False),
+            ('survey-writing', 'writer', 'paper/survey-v1.md', False),
             ('reproducibility-audit', 'reviewer', 'reviews/reproduction-v1.json', True),
             ('manuscript-review', 'critic', 'reviews/manuscript-v1.json', True),
             ('llm-evaluation', 'analyst', 'reviews/llm-eval-v1.md', False),
@@ -598,7 +607,7 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual({p.name for p in self.project.iterdir()},
                          {'research-state.json', 'research-brief.md', 'research-log.md', 'findings.md'})
         state = self.state()
-        self.assertEqual(state['schema_version'], 4)
+        self.assertEqual(state['schema_version'], 5)
         self.assertEqual(state['mode'], 'planning')
         self.assertNotIn('domain', state)
         for removed in ('authorization', 'allowed_tools', 'budget', 'project_id', 'next_action'):

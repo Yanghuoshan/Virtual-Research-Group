@@ -1,0 +1,32 @@
+{
+  "schema_version": 5,
+  "note": "Machine-readable framework enums. SKILL.md renders the phase table for humans; `research.py validate` fails if the two disagree. Projects may extend output_roots and max_parallel through `configure`, never phases or activities.",
+  "phases": [
+    {"name": "scope", "next": ["ideation"], "goal": "Bound the research question and constraints", "exit_criteria": "Question, significance, feasibility and success standards are sufficiently defined"},
+    {"name": "ideation", "next": ["scope", "design"], "goal": "Develop and compare falsifiable hypotheses", "exit_criteria": "The core selects a testable hypothesis or explains why scope must change"},
+    {"name": "design", "next": ["ideation", "execute"], "goal": "Design discriminating validation", "exit_criteria": "Protocol, comparisons, uncertainty and required resources are specified or redesign is justified"},
+    {"name": "execute", "next": ["design", "synthesize"], "goal": "Collect protocol-bound evidence", "exit_criteria": "Results and failures are preserved and sufficient for synthesis, or redesign is justified"},
+    {"name": "synthesize", "next": ["ideation", "design", "write"], "goal": "Assess explanations and counterevidence", "exit_criteria": "Claims and limits are assessed and the next direction is justified"},
+    {"name": "write", "next": ["synthesize", "review"], "goal": "Communicate established findings", "exit_criteria": "The requested draft is traceable and reviewable, or evidence gaps require rework"},
+    {"name": "review", "next": ["write", "synthesize", "design", "complete"], "goal": "Critically assess claims and reproducibility", "exit_criteria": "Issues are resolved or routed back; closure requires valid evidence and final audits"},
+    {"name": "complete", "next": ["scope"], "goal": "Preserve an accepted research outcome", "exit_criteria": "Reopening requires a new core scope decision"}
+  ],
+  "activities": ["analysis", "pilot", "experiment", "conclusions"],
+  "project_types": {
+    "empirical": {"protocol_root": "experiments", "evidence_roots": ["experiments", "data"], "requires_evaluation": true, "conclusions_without_protocol": false},
+    "theory": {"protocol_root": "experiments", "evidence_roots": ["experiments"], "requires_evaluation": false, "conclusions_without_protocol": false},
+    "survey": {"protocol_root": "literature", "evidence_roots": ["literature", "data"], "requires_evaluation": false, "conclusions_without_protocol": false},
+    "exploratory": {"protocol_root": "experiments", "evidence_roots": ["experiments", "data"], "requires_evaluation": false, "conclusions_without_protocol": true}
+  },
+  "output_roots": ["literature", "hypotheses", "experiments", "src", "data", "paper", "reports", "reviews"],
+  "roles": ["strategist", "methodologist", "experimenter", "engineer", "analyst", "writer", "reviewer", "critic"],
+  "evaluation_fields": ["primary_measure", "baseline", "validation_plan", "uncertainty_plan"],
+  "approval_kinds": ["experiment", "network", "paid", "compute", "install", "commit", "schedule"],
+  "rejection_codes": ["missing-evidence", "scope-violation", "unsupported-claim", "quality", "wrong-skill", "stale-input", "tool-failure", "budget", "other"],
+  "return_statuses": ["submitted", "blocked", "out-of-scope"],
+  "job_statuses": {"active": ["queued", "running", "unknown"], "terminal": ["succeeded", "failed", "cancelled"]},
+  "defaults": {"max_parallel": 3, "priority": 5},
+  "external_skill_prefix": "ext-",
+  "external_skill_dirs": ["external-skills"],
+  "external_skill_env": "RESEARCH_EXTERNAL_SKILLS"
+}
