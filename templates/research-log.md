@@ -7,8 +7,11 @@
 - **Updated:** (local time, ISO 8601, written when the core last made a decision)
 - **Status:** active or stopped
 - **Phase:** current research phase
+- **Goal:** selected goal dossier path and version, or exploration still open
+- **Access:** planning or research; approved services/scope and expiry, or no external grant
 - **Active tasks:** each running task id with a one-line objective; or none
 - **Open blockers:** each open blocker in one line; or none
+- **Feedback:** most recent prediction and follow-up assessment, or awaiting evidence
 - **Last decision:** what the core decided and why, in its own words
 - **Next:** what the core believes should happen next, and what it is waiting for
 

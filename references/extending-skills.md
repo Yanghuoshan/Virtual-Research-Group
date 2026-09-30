@@ -13,7 +13,7 @@ extensions/
     └── references/       # optional local method documents
 ```
 
-Install by cloning, copying, or symlinking a skill directory there:
+Install by cloning or copying a skill directory there. Directory symlinks are not supported by the extension loader:
 
 ```bash
 git clone <skill-repo> extensions/<skill-name>

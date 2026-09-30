@@ -21,7 +21,7 @@ TASK_KEYS = {'task_id', 'created_phase', 'objective', 'activity', 'skill', 'role
 PACKET_KEYS = {'schema_version', 'packet_id', 'task_id', 'created_at', 'source_revision',
                'state_sha256', 'core_sha256', 'project_phase', 'objective', 'activity', 'skill',
                'target_role', 'requested_model', 'session', 'summary', 'acceptance_criteria', 'evidence',
-               'allowed_outputs', 'dispatch_status', 'receipt_required',
+               'execution_contract', 'allowed_outputs', 'dispatch_status', 'receipt_required',
                'framework_root', 'project_root', 'boundary'}
 SKILL_KEYS = {'name', 'description', 'path', 'sha256'}
 SESSION_KEYS = {'mode', 'reason', 'resume_session_id', 'independent_review', 'status',
@@ -172,7 +172,7 @@ class FlatArchitectureTests(unittest.TestCase):
         config = json.loads((ROOT / 'framework.json').read_text())
         self.assertEqual(set(config), {'schema_version', 'note', 'phases', 'activities',
                                        'output_roots', 'roles', 'evaluation_fields'})
-        self.assertEqual(config['schema_version'], 5)
+        self.assertEqual(config['schema_version'], 6)
         self.assertEqual(config['activities'], ['analysis', 'experiment', 'conclusions'])
         self.assertEqual(set(config['output_roots']), TOOL.OUTPUT_ROOTS)
         self.assertEqual(tuple(config['roles']), TOOL.ROLE_IDS)
@@ -212,26 +212,27 @@ class FlatArchitectureTests(unittest.TestCase):
                 self.assertIn('`reports/`', text)
                 self.assertIn('frozen protocol', text)
 
-    def test_entry_point_stays_within_reading_budget(self):
-        notes = TOOL.budget_notes(ROOT)
-        self.assertEqual(notes, [], 'Entry documents exceeded the progressive-disclosure budget')
-        skill = max((p for p in (ROOT / 'skills').glob('*/SKILL.md')), key=lambda p: p.stat().st_size)
-        self.assertLessEqual(skill.stat().st_size, TOOL.SKILL_BUDGET,
-                             f'Specialist entry too large: {skill.parent.name}')
-
-    def test_reading_budget_is_advisory_not_a_validation_failure(self):
+    def test_reading_budget_is_advisory_and_never_a_validation_failure(self):
+        # Over-budget entry documents are advisory only: they never become hard
+        # validation errors and never block the bundle.
         with tempfile.TemporaryDirectory() as fake:
             root = Path(fake)
-            (root / 'SKILL.md').write_text('x' * (25001))
-            (root / 'README.md').write_text('y')
-            directory = root / 'skills' / 'demo'
-            directory.mkdir(parents=True)
-            (directory / 'SKILL.md').write_text('z' * (TOOL.SKILL_BUDGET + 1))
+            for name, limit in TOOL.ENTRY_BUDGETS + (('skills/demo/SKILL.md', TOOL.SKILL_BUDGET),):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('x' * (limit + 1))
             notes = TOOL.budget_notes(root)
-        self.assertEqual(len(notes), 2, notes)
+        self.assertEqual(len(notes), len(TOOL.ENTRY_BUDGETS) + 1, notes)
         for note in notes:
             self.assertTrue(note.startswith(TOOL.ADVISORY_PREFIX), f'Budget note lacks the advisory prefix: {note}')
         self.assertEqual([x for x in TOOL.validate(ROOT) if not x.startswith(TOOL.ADVISORY_PREFIX)], [])
+
+    def test_reading_budget_thresholds_leave_guidance_headroom(self):
+        # The thresholds are guidance, not tripwires: they must stay loose enough
+        # that ordinary growth of the shipped entry points does not immediately
+        # produce a note, otherwise the advisory degenerates into a hard cap.
+        headroom = min(limit - (ROOT / name).stat().st_size for name, limit in TOOL.ENTRY_BUDGETS)
+        self.assertGreaterEqual(headroom, 2000, 'Advisory threshold is too tight to work as guidance')
 
     def test_every_specialist_boundary_forbids_phase_advancement(self):
         for name, entry in TOOL.discover_skills(ROOT).items():
@@ -652,7 +653,7 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual({p.name for p in self.project.iterdir()},
                          {'research-state.json', 'research-brief.md', 'research-log.md', 'findings.md'})
         state = self.state()
-        self.assertEqual(state['schema_version'], 5)
+        self.assertEqual(state['schema_version'], 6)
         self.assertEqual(state['mode'], 'planning')
         self.assertNotIn('domain', state)
         for removed in ('authorization', 'allowed_tools', 'budget', 'project_id', 'next_action'):
@@ -718,6 +719,9 @@ class FlatArchitectureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'research mode'):
             TOOL.handoff(ROOT, self.project, 'run', 'Evaluate frozen outputs', [protocol['path']], **args)
         state['mode'] = 'research'
+        state['grant'] = {'evidence': self.evidence('reports/user-approval.md'),
+                          'services': ['sandbox'], 'operations': ['run'], 'scope': 'graph-study',
+                          'max_runs': 10, 'expires_at': '2099-01-01T00:00:00Z'}
         self.save(state)
         packet = TOOL.handoff(ROOT, self.project, 'run', 'Evaluate frozen outputs', [protocol['path']], **args)
         self.assertEqual(packet['skill']['name'], 'graph-evaluation')

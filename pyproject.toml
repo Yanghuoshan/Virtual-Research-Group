@@ -5,6 +5,6 @@
 [project]
 name = "general-ai-research-framework"
 version = "0.4.0"
-description = "Flat research skills with core-owned decisions and explicit serial assignments"
+description = "Flat research skills with core-owned decisions and bounded parallel assignments"
 requires-python = ">=3.10"
 dependencies = []

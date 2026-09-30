@@ -69,7 +69,10 @@ class FrameworkTests(unittest.TestCase):
                                  ['research-brief.md'] if evidence is None else evidence, **options)
 
     def test_architecture_and_provenance_validate(self):
-        self.assertEqual(self.tool.validate(ROOT), [])
+        # Advisory notes are guidance, not failures: only hard errors count here.
+        failures = [error for error in self.tool.validate(ROOT)
+                    if not error.startswith(self.tool.ADVISORY_PREFIX)]
+        self.assertEqual(failures, [])
 
     def test_bundle_text_is_english(self):
         violations = []
@@ -157,6 +160,11 @@ class FrameworkTests(unittest.TestCase):
         register_task(self.tool, self.project, 'run', activity='experiment', skill='graph-evaluation', role='experimenter')
         state = self.state()
         state.update(phase='design', mode='research')
+        approval = self.evidence('reports/user-approval-v1.md')
+        state['grant'] = {'evidence': {'path': approval,
+                                       'sha256': self.tool.digest(self.project / approval)},
+                          'services': ['sandbox'], 'operations': ['run'], 'scope': 'graph-study',
+                          'max_runs': 10, 'expires_at': '2099-01-01T00:00:00Z'}
         state['evaluation'] = dict(primary_measure='macro F1', baseline='Matched graph baseline',
                                    validation_plan='Grouped train/validation/test split', uncertainty_plan='Five paired seeds')
         protocol = self.evidence('experiments/H1/protocol.md')

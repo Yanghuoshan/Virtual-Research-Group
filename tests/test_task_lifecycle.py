@@ -37,7 +37,7 @@ class TaskLifecycleTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def receipt(self, packet, session_id='host:s1', **changes):
-        result = dict(schema_version=5, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=6, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00',
                       actual_role=packet['target_role']['id'], actual_model='provider/model-a',
@@ -104,6 +104,60 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn('to_phase', first)
         self.assertNotIn('from_phase', first)
         self.assertEqual(self.state()['tasks']['t1']['status'], 'planned')
+
+    def test_migration_rejects_inconsistent_running_legacy_state(self):
+        self.create()
+        legacy = self.state()
+        legacy['schema_version'] = 5
+        for key in ('goal', 'grant', 'reflections'):
+            legacy.pop(key)
+        legacy['tasks']['t1']['status'] = 'running'
+        self.save(legacy)
+        with self.assertRaisesRegex(ValueError, 'executors'):
+            self.tool.migrate_project(ROOT, self.project)
+        self.assertEqual(self.state()['schema_version'], 5)
+        legacy['tasks']['t1']['status'] = 'planned'
+        self.save(legacy)
+        self.tool.migrate_project(ROOT, self.project)
+        self.assertEqual(self.state()['schema_version'], 6)
+
+    def test_goal_versions_are_bound_and_unknowns_block_scope_exit(self):
+        goal = self.output('hypotheses/goal-v1.md')
+        with self.assertRaises(ValueError):
+            self.tool.set_goal(ROOT, self.project, goal, 'Select scope')
+        (self.project / goal).write_text('\n'.join((
+            '# Goal', 'Question: graph sensitivity', 'Value: improve reliability',
+            'Boundary: graph datasets', 'Alternatives: data shift or metric bias',
+            'Evidence: supplied dataset inventory', 'Falsifier: no improvement',
+            'Success: held-out effect', 'Feasibility: supplied data', 'Resources: bounded sandbox run',
+            'Stop: abandon after failed matched baseline', 'Unknown: baseline availability')))
+        self.tool.set_goal(ROOT, self.project, goal, 'Select scope')
+        with self.assertRaisesRegex(ValueError, 'unknown'):
+            self.tool.transition_phase(ROOT, self.project, 'ideation', 'Explore', [goal])
+
+    def test_reflection_requires_evidence_and_followup_review(self):
+        self.create('run', activity='experiment')
+        self.create('followup', activity='experiment')
+        self.output('reports/reflection-v1.json')
+        with self.assertRaises(ValueError):
+            self.tool.record_reflection(ROOT, self.project, 'run', 'reports/reflection-v1.json',
+                                        'Compare with predeclared metric')
+
+    def test_host_job_must_be_reconciled_before_submission(self):
+        self.create()
+        self.accept(self.packet())
+        self.tool.host_event(ROOT, self.project, 't1', 'host/job-1', 'running', 'Started')
+        with self.assertRaisesRegex(ValueError, 'outstanding'):
+            self.update('submitted', evidence=[self.output()], executor_stopped=True)
+        self.tool.host_event(ROOT, self.project, 't1', 'host/job-1', 'succeeded', 'Reconciled')
+        self.update('submitted', evidence=['hypotheses/t1-v1.md'], executor_stopped=True)
+
+    def test_planned_resolver_does_not_unblock_unrelated_work(self):
+        self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Need data')
+        self.create('fix', resolves=['Missing baseline'])
+        with self.assertRaises(ValueError):
+            self.create('other')
+        self.assertEqual(self.packet('fix')['task_id'], 'fix')
 
     def test_experiments_require_research_mode_even_in_scope(self):
         self.create(activity='experiment')
@@ -450,7 +504,7 @@ class GateCommandTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:gate'):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        return {'schema_version': 5, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
+        return {'schema_version': 6, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
                 'source_revision': packet['source_revision'], 'packet_sha256': digest, 'accepted': True,
                 'accepted_at': '2026-01-01T00:00:00+00:00', 'actual_role': packet['target_role']['id'],
                 'actual_model': 'provider/model-a', 'actual_session_mode': packet['session']['mode'],
@@ -465,9 +519,11 @@ class GateCommandTests(unittest.TestCase):
         options.update(changes)
         return self.tool.create_task(ROOT, self.project, task_id, 'Run the frozen protocol', **options)
 
-    def grant(self, reason='User authorized the bounded protocol', evidence=('research-brief.md',)):
-        return self.tool.authorize(ROOT, self.project, mode='research',
-                                   reason=reason, evidence=list(evidence))
+    def grant(self, reason='User authorized the bounded protocol', evidence=('reports/user-approval-v1.md',)):
+        self.write('reports/user-approval-v1.md', 'User-approved scope: graph-study; sandbox run; up to ten attempts.')
+        return self.tool.authorize(ROOT, self.project, mode='research', reason=reason, evidence=list(evidence),
+                                   services=['sandbox'], operations=['run'], scope='graph-study', max_runs=10,
+                                   expires_at='2099-01-01T00:00:00Z')
 
     def evaluate(self):
         return self.tool.set_evaluation(ROOT, self.project, primary_measure='macro F1', baseline='Matched baseline',
@@ -508,6 +564,18 @@ class GateCommandTests(unittest.TestCase):
                                     reason='Mode withdrawn', evidence=[])
         self.assertEqual(state['mode'], 'planning')
 
+    def test_planning_grant_rejects_execution_operation(self):
+        approval = self.write('reports/planning-approval-v1.md', 'Approved search only')
+        with self.assertRaisesRegex(ValueError, 'Planning grants'):
+            self.tool.authorize(ROOT, self.project, mode='planning', reason='Search candidate directions',
+                                evidence=[approval], services=['sandbox'], operations=['run'],
+                                scope='graph-study', max_runs=1, expires_at='2099-01-01T00:00:00Z')
+        state = self.tool.authorize(ROOT, self.project, mode='planning', reason='Search candidate directions',
+                                    evidence=[approval], services=['catalog'], operations=['search'],
+                                    scope='graph-study', max_runs=1, expires_at='2099-01-01T00:00:00Z')
+        self.assertEqual(state['mode'], 'planning')
+        self.assertEqual(state['grant']['operations'], ['search'])
+
     def test_authorize_rejects_unknown_mode_and_blank_reason(self):
         with self.assertRaises(ValueError):
             self.tool.authorize(ROOT, self.project, mode='curious', reason='Not a real mode')
@@ -532,6 +600,97 @@ class GateCommandTests(unittest.TestCase):
     def packet_for(self, output, evidence=None):
         return self.tool.handoff(ROOT, self.project, 'run', 'Execute the frozen protocol',
                                  evidence or ['research-brief.md'], model='current', outputs=[output])
+
+    def test_reflection_records_original_result_and_later_prediction_check(self):
+        self.grant()
+        self.evaluate()
+        protocol = self.protocol()
+        self.create('run')
+        first = self.packet_for('experiments/H1/runs/first/results/metrics.json', evidence=[protocol])
+        self.tool.accept_assignment(ROOT, self.project, first, self.receipt(first))
+        raw = self.write('experiments/H1/runs/first/results/metrics.json', '{"score": 0.7}')
+        self.tool.update_task(ROOT, self.project, 'run', 'submitted', 'Returned raw result', [raw], executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 'run', 'completed', 'Accepted result', [])
+        reflection = self.write('reports/reflection-v1.json', json.dumps({
+            'observation': 'The result is below the target', 'protocol_check': 'No known deviation',
+            'counterevidence': 'Baseline remains competitive', 'alternatives': 'Data shift',
+            'next_options': ['Replicate on independent split'], 'prediction': 'Effect disappears on new split',
+            'decision': 'Test the alternate split',
+            'evidence': [{'path': raw, 'sha256': self.digest(raw)}]}))
+        self.tool.record_reflection(ROOT, self.project, 'run', reflection, 'Review before selecting follow-up')
+        with self.assertRaises(ValueError):
+            self.tool.review_reflection(ROOT, self.project, reflection, 'run', 'Cannot reuse the same run',
+                                        assessment='inconclusive')
+        self.create('followup')
+        second = self.tool.handoff(ROOT, self.project, 'followup', 'Run independent check', [protocol],
+                                   model='current', outputs=['experiments/H1/runs/followup/results/metrics.json'])
+        self.tool.accept_assignment(ROOT, self.project, second, self.receipt(second, session_id='host:followup'))
+        new_raw = self.write('experiments/H1/runs/followup/results/metrics.json', '{"score": 0.68}')
+        self.tool.update_task(ROOT, self.project, 'followup', 'submitted', 'Returned follow-up result',
+                              [new_raw], executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 'followup', 'completed', 'Checked follow-up', [])
+        self.tool.review_reflection(ROOT, self.project, reflection, 'followup',
+                                    'Prediction consistent with new run', assessment='supported')
+        self.assertEqual(self.state()['reflections'][0]['followup']['task_id'], 'followup')
+        self.assertEqual(self.state()['reflections'][0]['followup']['assessment'], 'supported')
+
+    def test_scoped_tool_preflight_binds_active_packet_and_task(self):
+        self.grant()
+        self.evaluate()
+        protocol = self.protocol()
+        self.tool.create_task(ROOT, self.project, 'tool-run', 'Use sandbox run in graph-study',
+                              activity='experiment', skill='experiment-execution', role='experimenter',
+                              acceptance='Return protocol-bound measurements')
+        packet = self.tool.handoff(ROOT, self.project, 'tool-run', 'Run bounded experiment', [protocol],
+                                   model='current', outputs=['experiments/H1/runs/tool-run/results/'])
+        args = dict(task_id='tool-run', packet_id=packet['packet_id'], server='sandbox',
+                    operation='run', scope='graph-study')
+        with self.assertRaisesRegex(ValueError, 'active assignment'):
+            self.tool.check_tool(ROOT, self.project, **args)
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.assertTrue(self.tool.check_tool(ROOT, self.project, **args)['allowed'])
+        for change in ({'packet_id': 'old'}, {'scope': 'another-study'}, {'operation': 'write'}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.tool.check_tool(ROOT, self.project, **dict(args, **change))
+
+    def test_changed_protocol_does_not_relabel_submitted_experiment(self):
+        self.grant()
+        self.evaluate()
+        protocol = self.protocol()
+        self.create('run')
+        packet = self.packet_for('experiments/H1/runs/exp-1/results/metrics.json', evidence=[protocol])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        raw = self.write('experiments/H1/runs/exp-1/results/metrics.json', '{"score": 0.7}')
+        self.tool.update_task(ROOT, self.project, 'run', 'submitted', 'Executor stopped', [raw],
+                              executor_stopped=True)
+        next_protocol = self.write('experiments/H1/protocol-v2.md', 'Different metric and split')
+        self.tool.set_protocol(ROOT, self.project, path=next_protocol, reason='New version after execution')
+        with self.assertRaisesRegex(ValueError, 'Execution contract changed'):
+            self.tool.update_task(ROOT, self.project, 'run', 'completed', 'Incorrect relabel', [])
+
+    def test_expired_grant_prevents_new_calls_but_not_existing_result_review(self):
+        self.grant()
+        self.evaluate()
+        protocol = self.protocol()
+        self.create('run')
+        packet = self.packet_for('experiments/H1/runs/exp-1/results/metrics.json', evidence=[protocol])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write('experiments/H1/runs/exp-1/results/metrics.json', '{"score": 0.7}')
+        self.tool.update_task(ROOT, self.project, 'run', 'submitted', 'Executor stopped',
+                              ['experiments/H1/runs/exp-1/results/metrics.json'], executor_stopped=True)
+        from datetime import datetime, timezone
+        from unittest import mock
+
+        class Later(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2100, 1, 1, tzinfo=tz or timezone.utc)
+
+        with mock.patch.object(self.tool, 'datetime', Later):
+            with self.assertRaisesRegex(ValueError, 'expired'):
+                self.tool.verify_grant(self.project, self.state())
+            self.tool.update_task(ROOT, self.project, 'run', 'completed', 'Reviewed recorded run', [])
+        self.assertEqual(self.state()['tasks']['run']['status'], 'completed')
 
     def test_set_protocol_rejects_paths_outside_experiments(self):
         self.write('paper/protocol.md')
@@ -666,7 +825,9 @@ class GateCommandTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.tool.main(['authorize', '--project', str(self.project), '--mode', 'research',
                                              '--reason', 'User authorized the protocol',
-                                             '--evidence', 'research-brief.md']), 0)
+                                             '--evidence', 'research-brief.md', '--services', 'sandbox',
+                                             '--operations', 'run', '--scope', 'graph-study', '--max-runs', '10',
+                                             '--expires-at', '2099-01-01T00:00:00Z']), 0)
             self.assertEqual(self.tool.main(['set-evaluation', '--project', str(self.project),
                                              '--primary-measure', 'macro F1', '--baseline', 'Matched baseline',
                                              '--validation-plan', 'Grouped split', '--uncertainty-plan', 'Five seeds',

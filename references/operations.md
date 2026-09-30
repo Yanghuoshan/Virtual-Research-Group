@@ -9,7 +9,13 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 | `validate`, `skills` | Check the bundle or discover direct and extension skills | No |
 | `status` | Print a read-only progress board | No |
 | `init` | Create four planning documents in a new directory | Creates a project; never overwrites |
-| `authorize` | Set research mode, the single experiment gate | Yes, not phase |
+| `migrate` | Explicitly upgrade an idle planning schema-5 project to schema 6 | Yes, not phase |
+| `set-goal` | Select a versioned goal dossier under `hypotheses/` or `reports/` | Yes, not phase |
+| `authorize` | Set research mode and/or a scoped access grant | Yes, not phase |
+| `check-tool` | Read-only host preflight against an approved service, operation and scope | No |
+| `host-event` | Record the observed status of an external job for a running task | Yes, not phase |
+| `watch` | Read-only report of silent active tasks and recorded outstanding jobs | No |
+| `reflect`, `review-reflection` | Record raw-evidence-backed reflection and follow-up check | Yes, not phase |
 | `set-evaluation` | Record the four evaluation fields | Yes, not phase |
 | `set-protocol` | Freeze a nonempty protocol under `experiments/` | Yes, not phase |
 | `set-audit` | Record an evidence or final review audit from `reviews/` | Yes, not phase |
@@ -25,9 +31,15 @@ Every command marked "Yes" in the table above atomically replaces `research-stat
 
 History events use one uniform shape: `action`, `reason` and `revision` with a timestamp on every event, `task_id` on task-level events, and evidence path/hash pairs on events that cite material. Reading `history` newest-last shows where the project stands: `task-created` commissions work, `assignment-accepted` records an executor starting, `task-submitted` records work returned, `task-completed` records core acceptance.
 
+## Planning Goal and Research Feedback
+
+In planning mode, compare candidate questions, evidence gaps, falsifiers and feasibility without treating hypotheses as verified results. Write a versioned dossier under `hypotheses/` or `reports/` containing populated `Question:`, `Value:`, `Boundary:`, `Alternatives:`, `Evidence:`, `Falsifier:`, `Success:`, `Feasibility:`, `Resources:`, `Stop:` and `Unknown:` lines; select it with `set-goal --project ... --path hypotheses/goal-v1.md --reason ...`. A selected goal must remain hash-valid; `scope → ideation` requires its `Unknown:` line to be `none` or `resolved` after the core has actually resolved/bounded material uncertainties. Legacy projects without a selected goal remain usable but do not satisfy this stronger gate.
+
+For an accepted experimental assignment, keep the snapshot of protocol, evaluation, grant and goal in its packet. Grant expiry forbids *new* work or tool calls; it does not retroactively prevent acceptance of results already submitted under the same unchanged contract. Never change a protocol to relabel an earlier run; use new versioned paths and a new task if its contract changed. After a completed or blocked experiment, prepare a JSON report under `reports/` with nonempty `observation`, `protocol_check`, `counterevidence`, `alternatives`, `next_options`, `prediction`, `decision` and `evidence` (an array of project-relative `path`/`sha256` pairs including an original run output). `reflect --project ... --task ... --path reports/...json --reason ...` records its prediction without starting another run. When a different experiment completes *later*, `review-reflection --project ... --path reports/...json --task ... --assessment supported|contradicted|inconclusive --reason ...` links the new evidence and the core's prediction assessment. Rejected hypotheses, null results and incomplete replication remain in the record.
+
 ## Keep the Current Brief Current
 
-Every state-changing command is preceded or immediately followed by the core rewriting the brief block at the top of `research-log.md`, in the core's own words. The block lives between `<!-- brief:start -->` and `<!-- brief:end -->`; nothing outside the block is rewritten. A compliant brief states, at minimum: the local-time ISO 8601 moment it was written, project status, phase, the active task (id, one-line objective, skill, role) or none, each open blocker, the decision just made and why, and what the core believes should happen next. The scripts never write this block: `research-state.json` remains the authoritative record, and the brief is the core's human-readable narrative of it. A brief that contradicts the state file is a defect in itself - the host watchdog checks brief-state consistency, and a human reading only the brief must be able to tell where the agent is, why, and how to intervene. If the log file is missing the markers (for example a pre-brief project), the core adds the block on its next decision rather than editing history.
+Every state-changing command is preceded or immediately followed by the core rewriting the brief block at the top of `research-log.md`, in the core's own words. The block lives between `<!-- brief:start -->` and `<!-- brief:end -->`; nothing outside the block is rewritten. A compliant brief states, at minimum: the local-time ISO 8601 moment it was written, project status, phase, goal dossier and unknowns, approved access/scope/expiry, each active task (id, one-line objective, skill, role) or none, each open blocker, most recent reflection when applicable, the decision just made and why, and what the core believes should happen next. The scripts never write this block: `research-state.json` remains the authoritative record, and the brief is the core's human-readable narrative of it. A brief that contradicts the state file is a defect in itself - the host watchdog checks brief-state consistency, and a human reading only the brief must be able to tell where the agent is, why, and how to intervene. If the log file is missing the markers (for example a pre-brief project), the core adds the block on its next decision rather than editing history.
 
 ## Initialize and Register Multiple Tasks
 
@@ -43,11 +55,11 @@ Both tasks are planned in `scope`; no phase change occurs. Likewise create as ma
 
 Several tasks may run at the same time; a new assignment is refused only while another running task holds an overlapping output scope. One task still has at most one executor at a time.
 
-A task created with `--resolves "Missing baseline"` declares that it exists to fix that blocker. Such a task may be created, assigned and completed while the blocker is open, so a missing prerequisite no longer freezes the whole project; completing the task removes the blocker automatically, and the core can re-add it if the accepted output does not actually fix it.
+A task created with `--resolves "Missing baseline"` declares that it exists to fix that blocker. Only that resolving task may be created, assigned and completed while the blocker is open; unrelated tasks and phase changes stay blocked. Completing it removes the blocker after core review, and the core can re-add it if the output does not actually fix it.
 
 Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires research mode, all four evaluation fields and the matching frozen protocol; `conclusions` requires a verified evidence audit (`evidence_review.status == verified`) binding findings, the current protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/`. These gates apply in every project phase, are opened by the gate commands below, and the core is responsible for honest classification and all additional tool/service permissions.
 
-External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective, for example "use the literature search server, `search` and `fetch` only". Leaving the project network or using paid access requires explicit user approval, recorded as the evidence cited when research mode is set and named in the task objective; the helper does not enforce it. Preserve raw responses with source URI and retrieval date rather than only a summary.
+External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective and record a separate scoped grant from actual user approval. For planning retrieval, `authorize --mode planning` may include a grant without enabling experiments; `authorize --mode planning` without grant options revokes it. After `accept`, the host must call `check-tool --project ... --task ... --packet ... --server ... --operation ... --scope ...` before every external operation and enforce refusal on mismatch. The task objective must name the exact server and operation; read-like operation names require host-side argument inspection to rule out writes. This check cannot intercept an uncooperative host or establish the authenticity of a cited approval artifact. Preserve raw responses with source URI and retrieval date.
 
 ## Set Gates Before Gated Work
 
@@ -55,7 +67,8 @@ Gates are core decisions, not specialist actions. Each command below requires `-
 
 ```bash
 python3 scripts/research.py authorize --project ./projects/study --mode research \
-  --reason "User authorized the bounded protocol" --evidence research-brief.md
+  --reason "User authorized the bounded protocol" --evidence reports/user-approval-v1.md \
+  --services sandbox-server --operations run --scope "graph-study" --max-runs 3 --expires-at 2099-01-01T00:00:00Z
 python3 scripts/research.py set-evaluation --project ./projects/study --primary-measure "mean accuracy" \
   --baseline "published baseline" --validation-plan "held-out split" --uncertainty-plan "bootstrap interval" \
   --reason "Core accepted the protocol's estimand and checks"
@@ -65,7 +78,7 @@ python3 scripts/research.py blockers --project ./projects/study --resolve "Missi
 python3 scripts/research.py project-status --project ./projects/study --to stopped --reason "Planning-only work stops here"
 ```
 
-Granting research mode requires cited authorization evidence; returning to planning mode does not. `set-protocol` accepts only a nonempty, nonsymlinked file under `experiments/`.
+Granting research mode requires one cited user approval artifact, named services/operations, exact scope, a positive maximum number of experimental attempts across the project and a future ISO expiry. The helper checks the evidence file and fields, not the authenticity of user consent. Returning to planning mode without new grant arguments revokes access. `migrate --project ...` only accepts schema-5 projects with no active tasks and planning mode; first back up and reconcile every host job, then issue new schema-6 packets and receipts. `set-protocol` accepts only a nonempty, nonsymlinked file under `experiments/`.
 
 Audits are written under `reviews/` from `templates/evidence-audit.json` and only then recorded, because the helper verifies the file before accepting `verified` or `passed`:
 
@@ -84,7 +97,7 @@ An evidence audit must bind `findings.md`, the frozen protocol when one is froze
 python3 scripts/research.py handoff --project ./projects/study --task scope-1 --model current --summary "Reformulate the supplied question without running experiments" --evidence research-brief.md --outputs hypotheses/scope-1-v1.md --session fresh
 ```
 
-How a host agent executes the printed packet in an isolated subagent session, fills the receipt from actual execution facts, and how a scheduled read-only watchdog supervises the loop, is defined in the [host bridge](host-bridge.md); the [framework diagrams](architecture-diagrams.md) map the layers and flows.
+How a cooperating host prepares the requested fresh/reused/current session, records a receipt before external calls, and how an optional host-level read-only watchdog could supervise the loop, is defined in the [host bridge](host-bridge.md); the [framework diagrams](architecture-diagrams.md) map the layers and flows.
 
 `--task` selects a stable task, not a phase. The packet includes a new `packet_id`, current `project_phase`, task contract and evidence fingerprints. `handoff` no longer accepts `--to`, skill, role or acceptance overrides. Save the printed packet at a new path under `handoffs/` if it is to be accepted. Avoid overwriting earlier attempts.
 
@@ -106,7 +119,7 @@ After saving both files, the core can record acceptance:
 python3 scripts/research.py accept --project ./projects/study --packet handoffs/scope-1-request.json --receipt handoffs/scope-1-receipt.json
 ```
 
-This requires real receipt values; a copied blank template fails. Acceptance validates the receipt against the current state and the live task contract directly; the executor may already have written artifacts inside its assigned scope by the time the receipt is recorded, and that is not an error - output freshness is enforced at `handoff` time, artifact inspection happens at submission. The task becomes running and joins `active_tasks`; phase stays `scope`. A compact record of the attempt (packet id and digest, skill, role, model, session, output scopes, evidence hashes) is kept inside that task's assignment history; the full packet and receipt JSON stay saved under `handoffs/`. Changed state, input evidence or a drifted contract invalidates acceptance. Host IDs are not invented; absent IDs require an explicit limitation and cannot be resumed. No helper can prove host isolation or the truth of a receipt.
+This requires real receipt values; a copied blank template fails. Acceptance validates the receipt against the current state and the live task contract directly. Record acceptance before any external call; the helper tolerates scoped outputs already written before acceptance for compatibility, not as permission to bypass `check-tool`. Output freshness is enforced at `handoff` time, while artifact inspection happens at submission. The task becomes running and joins `active_tasks`; phase stays `scope`. A compact record of the attempt (packet id and digest, skill, role, model, session, output scopes, evidence hashes) is kept inside that task's assignment history; the full packet and receipt JSON stay saved under `handoffs/`. Changed state, input evidence or a drifted contract invalidates acceptance. Host IDs are not invented; absent IDs require an explicit limitation and cannot be resumed. No helper can prove host isolation or the truth of a receipt.
 
 ## Submit, Accept, or Continue the Same Task
 
@@ -117,9 +130,9 @@ python3 scripts/research.py task-status --project ./projects/study --task scope-
 python3 scripts/research.py task-status --project ./projects/study --task scope-1 --status completed --reason "Core verified the acceptance criteria and evidence limits"
 ```
 
-Submission is not completion. The core must inspect the actual artifact, not merely rely on file existence. Completion rechecks submitted artifact hashes, task inputs and activity gates, and is refused while any project blocker remains open. `--executor-stopped` is a core assertion after checking host/job status, not a command that kills processes.
+Submission is not completion. The core must inspect the actual artifact, not merely rely on file existence. Completion rechecks submitted artifact hashes and task inputs; for experiments it compares the original execution contract to the current protocol, plan and grant without requiring an already-used grant to remain unexpired. An unrelated open blocker still prevents completion; the explicitly resolving task may complete and remove its blocker. `--executor-stopped` is a core assertion after checking host/job status, not a command that kills processes.
 
-For overload or missing prerequisites: move `running → blocked` with `--executor-stopped`, preserving diagnostics as evidence. After resolving the blocker, move `blocked → planned`, then issue a new packet under the same task ID with new outputs and a fresh or compatible reused session. Rejected submissions can move `submitted → planned`. Neither requires falsely completing the task. Other tasks may work on prerequisites while one is blocked. Global blockers still prevent execution acceptance.
+For overload or missing prerequisites: move `running → blocked` with `--executor-stopped`, preserving diagnostics as evidence. After resolving the blocker, move `blocked → planned`, then issue a new packet under the same task ID with new outputs and a fresh or compatible reused session. Rejected submissions can move `submitted → planned`. Neither requires falsely completing the task. Other tasks may work on prerequisites while one is blocked, but only tasks explicitly declaring the matching open blocker under `--resolves` may bypass it. Unrelated work stays blocked.
 
 Allowed states: `planned → running` only through `accept`; `running → submitted/blocked/cancelled` only after executor termination; `submitted → completed/planned/cancelled`; `blocked → planned/cancelled`; `planned → cancelled`. Completed/cancelled tasks are terminal and remain in history.
 
@@ -135,4 +148,4 @@ Run this only when the cited evidence actually warrants the decision, not automa
 
 ## Compatibility
 
-State, packet and receipt schema are now 5. Schema 4 and older are rejected; do not just change the version number. Schema 4 dropped the authorization flags (research mode is the single experiment gate), the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration](architecture.md). Schema 5 introduces parallel tasks with mutually exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.
+State, packet and receipt schema are now 6. Older schemas are rejected; only an idle planning schema-5 project has an explicit `migrate` path. Do not just change the version number. Schema 4 dropped the authorization flags (research mode is the single experiment gate), the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration](architecture.md). Schema 5 introduces parallel tasks with mutually exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.

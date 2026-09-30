@@ -12,7 +12,7 @@ One decision layer, one flat collection of specialist skills. Read this document
 Only the core selects hypotheses, phases, skills, roles, models, tool permissions, output paths, acceptance criteria, and the next task. Only the core initializes the project, freezes protocols, accepts results, updates global findings, and closes or stops research.
 
 - Maintain sole write ownership of `research-state.json`, `research-brief.md`, `research-log.md`, `findings.md`, and `handoffs/`. Specialists return proposed findings in task-local artifacts, never edit these global records.
-- Delegate one bounded task to one skill at a time. A role describes responsibility, not a fixed skill bundle. Choose a model explicitly; never derive skills from a domain profile or merge role presets.
+- Assign one skill and at most one executor to each bounded task; several disjoint tasks may run concurrently. A role describes responsibility, not a fixed skill bundle. Choose a model explicitly; never derive skills from a domain profile or merge role presets.
 - Retain scientific judgment: decide whether evidence is relevant and sound, resolve contradictions, reject unsupported claims, and decide when to deepen, broaden, pivot, or stop.
 - Default to planning only. User authorization is required for experiments, external or paid access, recurring operation, and git commits; record that approval as the evidence cited when research mode is set and name the approved services in the task objective. Stronger core ownership does not grant authority beyond the user's request.
 - Specialist skills may choose technical steps within their assignment. They must not select another skill, spawn agents, change models, schedule future work, advance research phases, or acquire new permissions. Missing inputs return to the core as blockers.
@@ -37,7 +37,7 @@ Keep `tasks` and append-only decision `history` in `research-state.json`; no ext
 5. **Accept output or retry:** the core reviews a submission against its acceptance criteria. Only then mark it `completed`; reject stale artifacts or inputs. For bounded rework or resolved blockers, move back to `planned` with a reason and issue a new packet under the same task ID. Preserve previous submissions and attempts in history. Reuse old outputs as evidence but assign new output paths.
 6. **Cancel:** the core may cancel unneeded tasks explicitly, retaining reasons and partial artifacts. Completed/cancelled IDs are never overwritten or reopened; create a new task for a new objective. Session termination alone cannot complete or cancel a task.
 
-Helpers implement these explicit core operations, not an autonomous scheduler; the assignment and receipt contract they implement is in [assignment contracts](references/assignment-contracts.md). Never let specialists call core state-changing commands. The core may plan further work while a task runs, but cannot accept concurrent execution. It separately evaluates the phase's exit criteria and invokes a phase decision when appropriate; no task or session operation advances phase automatically.
+Helpers implement these explicit core operations, not an autonomous scheduler; the assignment and receipt contract they implement is in [assignment contracts](references/assignment-contracts.md). Never let specialists call core state-changing commands. The core may plan further work while a task runs, but cannot accept a second executor for the same task or an overlapping output scope. It separately evaluates the phase's exit criteria and invokes a phase decision when appropriate; no task or session operation advances phase automatically.
 
 ## Research Workspace
 
@@ -71,7 +71,7 @@ Initialize only the four root documents; create other directories when a task ne
 
 ## Progress Visibility and Host Bridge
 
-The current brief at the top of `research-log.md` is the human's primary window. The core rewrites it, in its own words, at every core decision: local timestamp, status, phase, active tasks, open blockers, the decision just made and why, and the intended next step. `research-state.json` stays authoritative, and a brief that contradicts the state is a defect the watchdog reports; a human reading only the brief must know where the agent is, why, and how to intervene.
+The current brief at the top of `research-log.md` is the human's primary window. The core rewrites it, in its own words, at every core decision: local timestamp, status, phase, selected goal and remaining unknowns, approved access, active tasks, open blockers, latest feedback when applicable, the decision just made and why, and the intended next step. `research-state.json` stays authoritative, and a brief that contradicts the state is a defect the watchdog reports; a human reading only the brief must know where the agent is, why, and how to intervene.
 
 How a host agent executes packets in isolated sessions, fills receipts, and how a scheduled read-only watchdog supervises the loop for stalls and drift, is defined in [host bridge](references/host-bridge.md). A one-page visual map of layers, phases, the evidence pipeline and the supervision loop is in [framework diagrams](references/architecture-diagrams.md).
 
@@ -81,19 +81,23 @@ How a host agent executes packets in isolated sessions, fills receipts, and how 
 2. Identify the smallest unresolved research question or artifact requirement. State why it matters now.
 3. Inspect `skills/*/SKILL.md` descriptions, then read the candidate's full input, method, output, check, and boundary contract. Optional `scripts/research.py skills` lists entries directly from disk without a registration file. External specialists under `extensions/` follow the same contract and are selected by name like built-ins; a broken one degrades to a warning, never a bundle failure ([extending skills](references/extending-skills.md)).
 4. Register a task with an objective, explicit activity, one applicable skill, role and acceptance criterion. Select an existing planned task instead when continuing the same contract. No suitable skill means report the gap; do not pretend an evaluator also trains models.
-5. Prepare an assignment for that task: select model/session using the Session Lifecycle policy, provide evidence and fresh output paths, then invoke the host. Record the actual receipt before work. Inspect the returned submission and separately decide completion or rework. Neither assignment nor task completion advances phase.
+5. Prepare an assignment for that task: select model/session using the Session Lifecycle policy, provide evidence and fresh output paths, then invoke the host. The host records the actual acceptance time in the receipt; the core accepts it before any external call. Existing scoped outputs are tolerated only as a compatibility detail, never as permission to bypass the pre-call gate. Inspect the returned submission and separately decide completion or rework. Neither assignment nor task completion advances phase.
 
 ## External Tools and MCP Servers
 
 External capabilities such as literature search, dataset lookup or experiment analysis offered through MCP servers are **channels assigned by the core**, never choices made by a specialist.
 
-- Declare the permitted servers and tool names in the task objective. The objective is the single channel through which tool limits reach the executor; there is no separate state field.
-- Network or paid access requires explicit user approval. Record it as the authorization evidence cited when the core sets research mode, and name the approved services in the task objective. The helper does not enforce approval, so the core must check it.
+- Declare the permitted servers and tool names in the task objective. The objective tells the executor what to do; the separate scoped `grant` records what the user approved. A grant never delegates scientific choices to a specialist.
+- Network or paid access requires explicit user approval even in planning mode. `authorize` records one cited approval artifact, services, operations, exact scope, expiry and run limit; planning mode can hold a retrieval grant without authorizing experiments. Before every actual external call the host must invoke `check-tool` with the active task ID and packet ID, exact service, operation and scope and refuse on mismatch; read-like tool names still require host-side argument inspection. The helper checks structure and artifact identity, not the authenticity of consent or an external call it cannot observe; without a host gate this remains a documented boundary, not an enforced sandbox.
 - A skill may use only the assigned channel and tools. Installing servers, switching providers, purchasing access or broadening a search are blockers returned to the core.
 - Record provenance for external results: source URI, retrieval date, and a digest where available; preserve raw responses under the assigned output path instead of only a summary.
 - An external response is metadata evidence, not a scientific endorsement. Treat coverage limits and version drift as recorded limitations, and re-verify before a conclusion depends on it.
 
 Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; running a frozen protocol in an assigned sandbox calls for `experiment-execution`; cleaning run outputs into checksummed analysis tables calls for `data-processing`; pre-specified statistical testing calls for `statistical-analysis`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
+
+## Planning Exploration and Goal Dossier
+
+Planning mode is exploratory, not a fixed sequence. The core may compare competing questions, falsifiers, costs, counterevidence and feasibility using bounded analysis tasks, with supplied material or separately authorized retrieval. Label each candidate as provisional and distinguish an unexecuted search plan from retrieved evidence. Keep `research-brief.md` as the human narrative; a versioned `hypotheses/` or `reports/` goal dossier contains nonempty `Question:`, `Value:`, `Boundary:`, `Alternatives:`, `Evidence:`, `Falsifier:`, `Success:`, `Feasibility:`, `Resources:`, `Stop:` and `Unknown:` lines. Record which assumptions have sources and which are only proposals; compare candidates before selection. The core selects it with `set-goal`; later revisions use new paths. Leaving scope with a selected dossier requires `Unknown: none` or `Unknown: resolved` after the core actually resolves or bounds the remaining uncertainties. Without a selected dossier, legacy planning remains possible, but do not claim that the stronger goal gate passed.
 
 ## Research Phases
 
@@ -116,14 +120,14 @@ The table is the machine-readable contract; the helper parses it from this file.
 
 ## Evidence and Acceptance Gates
 
-All assignments require existing nonempty input evidence, nonempty rationale and acceptance criteria, legal project-local output paths, active state, and no unresolved blockers. Do not permit specialists to overwrite inputs, existing outputs, global records, or the frozen protocol. Use new versioned outputs for revisions. Request new output targets, including directories; pre-existing directories or symlink targets are not an acceptable output scope.
+All assignments require existing nonempty input evidence, nonempty rationale and acceptance criteria, legal project-local output paths, active state, and no unresolved blockers other than those the assigned task explicitly resolves. Do not permit specialists to overwrite inputs, existing outputs, global records, or the frozen protocol. Use new versioned outputs for revisions. Request new output targets, including directories; pre-existing directories or symlink targets are not an acceptable output scope.
 
 External tool use follows the [external tools policy](#external-tools-and-mcp-servers): declare permitted servers/tools in the task objective, confirm user approval when access leaves the project, and preserve raw responses with provenance.
 
 At task creation, the core explicitly classifies the actual work, never inferring permission from phase, role, skill name or output directory:
 
 - `analysis`: scoping, literature/citation checks, hypothesis generation, protocol design/audits, exploratory interpretation or clearly labeled outlines. No new experiment or presentation of unverified claims as established results is authorized.
-- `experiment`: performing an experiment, simulation, benchmark, or computational proof check. Requires `mode=research`, all four evaluation fields and the matching frozen protocol, even if the project is still in scope or ideation.
+- `experiment`: performing an experiment, simulation, benchmark, or computational proof check. Requires `mode=research`, a current scoped user grant, remaining run allowance, all four evaluation fields and the matching frozen protocol, even if the project is still in scope or ideation. The assignment binds these versions and cannot be completed under a different contract.
 - `conclusions`: presenting research claims as verified, in writing, figures or talks. Requires the verified evidence audit below, even outside the write phase. Split combined experimental execution and verified-claim communication into separate tasks.
 
 These three activity values are safety declarations, not new phases or a skill router. The helper cannot detect dishonest labeling; the core must inspect the objective, permitted tools and actual operations. Analysis that needs external retrieval still requires user approval for that access. Theoretical validation uses proof obligations and independent checking rather than assuming training or GPUs.
@@ -132,15 +136,18 @@ Writing research conclusions requires a verified audit JSON binding `findings.md
 
 ## Core State Controls
 
-`research-state.json` holds every gate and switch that a specialist may not set: `mode`, `evaluation`, `protocol`, `evidence_review`, `review`, `blockers` and the project `status`. The core changes them only through explicit helper commands, each of which records a revision and a history entry like any other core decision:
+`research-state.json` holds core-owned gates and decisions: `goal`, `mode`, `grant`, `evaluation`, `protocol`, `reflections`, `evidence_review`, `review`, `blockers` and the project `status`. The core changes them only through explicit helper commands, each of which records a revision and a history entry like any other core decision:
 
 | Field | Command | Gate it opens |
 |---|---|---|
-| `mode` | `authorize` | The single experiment gate; granting research mode requires a reason and cited authorization evidence |
+| `goal` | `set-goal` | Selects a versioned planning dossier; unresolved unknowns hold its scope exit |
+| `mode`, `grant` | `authorize` | Research mode and optional planning retrieval grant require scoped cited approval, expiry and attempt limit |
+| host jobs | `host-event` | Records observed external job state; running jobs block submission and rework |
+| `reflections` | `reflect`, `review-reflection` | Binds post-run diagnosis and later prediction check without auto-approving a new run |
 | `evaluation` (four fields) | `set-evaluation` | Prerequisite for assigning an `experiment` task |
 | `protocol` | `set-protocol` | Freezes a nonempty artifact under `experiments/` |
 | `evidence_review`, `review` | `set-audit` | `verified`/`passed` are checked against the audit file before they are recorded |
-| `blockers` | `blockers` | Unresolved blockers halt work and phase changes. A `--resolves` task can proceed; if blocked, the blocker resumes, and completion removes it |
+| `blockers` | `blockers` | Unresolved blockers halt unrelated work and phase changes. Only a task explicitly declaring `--resolves` may proceed; completion removes its blocker |
 | `status` (`active`, `stopped`) | `project-status` | `stopped` closes task creation, acceptance, task-status, handoffs, phase and gate decisions until reactivated |
 
 Audits under `reviews/` follow `templates/evidence-audit.json`; changed subjects invalidate approval. Stop only after executors exit; stopping preserves records and prevents task changes until reactivation. Repeating a status is refused. Hand-editing state breaks the audit trail. Receipts require `accepted_at` and four `*_checked` flags. Acceptance rechecks core, session and output boundaries but permits outputs written after packet generation.
@@ -172,6 +179,14 @@ No silent fallback: missing isolation, unavailable models or failed resume opera
 Checkpoint artifacts and diagnostics, confirm the old executor has stopped, and reconcile job IDs, statuses and outputs before marking a running task blocked or submitted. A new session does not authorize rerunning an in-flight experiment or reset its budget. The core can then replan the same task and issue a fresh packet with new output paths, or cancel it explicitly. Preserve partial work and failures as evidence.
 
 When the core itself changes session, transfer the state revision, tasks, active assignment/session, outstanding jobs and last decision through durable records. Reconcile in-flight work before continuing; never keep two decision owners or reset permissions/audit status because a session changed.
+
+## Bounded Autonomous Research Loop
+
+When the user requests continuing research and a current grant covers the exact task channel, the core may repeat this loop without asking between ordinary authorized tasks: read the goal dossier, current evidence and blockers; choose the smallest evidence gap by decision impact and cost; register or resume one bounded task; freeze its packet and accept the host receipt before any external call; have the host check each tool call, record job IDs and reconcile them before submission; inspect outputs and explicitly accept, replan or reject; then separately judge whether phase exit criteria are met. Run `reflect` after a relevant experiment and revisit prior predictions before choosing a related new run. Do not use specialist output as automatic permission or change a frozen protocol to fit observed results. Stop and report when the user approval is absent/expired, the attempt limit is reached, an assigned tool or sandbox is unavailable, an external job is unresolved, the protocol changes, a blocker has no bounded resolver, the planned next operation exceeds the approved scope, or scientific judgment is materially uncertain. No helper schedules, dispatches or advances this loop on its own; the host and core must actually implement it.
+
+## Post-Experiment Reflection Loop
+
+After a completed or blocked experimental task, the core may commission an analysis task to compare the frozen protocol with raw results, including null and failed runs. Its `reports/` JSON proposal records `observation`, `protocol_check`, `counterevidence`, `alternatives`, `next_options`, `prediction`, `decision` and hashed `evidence` references to the original run. `reflect` records the core decision and prediction; it neither edits the protocol nor authorizes a new experiment. A later independently accepted experimental task may be connected with `review-reflection` to compare the prediction with observed results. Preserve failed predictions and specify a new protocol/version for substantive changes; never tune on held-out outcomes while claiming independent validation.
 
 ## Sequential Roles and Models
 

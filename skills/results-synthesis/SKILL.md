@@ -1,6 +1,6 @@
 ---
 name: results-synthesis
-description: Use when verified run outputs, analyses, and findings must be compared across runs or hypotheses into a claim-evidence map with convergent and divergent evidence, counterexamples, and open questions - without promoting claims to accepted findings.
+description: Use when experiment outputs or failure diagnostics must be compared across runs or hypotheses, including contradictory results and post-run reflection, without promoting proposed claims to accepted findings.
 ---
 
 # Cross-Run Results Synthesis
@@ -18,11 +18,11 @@ Run analyses and result manifests with hashes, the frozen protocols they execute
 3. Separate convergence from divergence: claims supported under all tested conditions, claims that flip under specified conditions, and claims resting on a single run. Name the condition that flips each contested claim.
 4. Test rival explanations against the same map: for each preferred mechanism, state at least one alternative the evidence does not yet exclude, and what observation would separate them.
 5. Quantify where the artifacts allow it and refuse where they do not; a synthesis without intervals is labeled as such, never smoothed into false precision.
-6. Return the map with open questions ranked by decision impact: which unresolved question, if answered, would most change the next direction decision.
+6. Return the map with open questions ranked by decision impact: which unresolved question, if answered, would most change the next direction decision. When the core requests post-run reflection, compare observed outcomes with the predeclared primary measure and baseline, name protocol deviations and failed/null runs, then offer bounded next-step alternatives with resource costs and a falsifiable prediction for each; do not edit a frozen protocol or cherry-pick favorable runs.
 
 ## Outputs
 
-At the assigned path: the claim-evidence map with per-claim status (supported / contested / single-run / contradicted), condition tables, rival-explanation notes, and ranked open questions. Everything is a proposal; the core alone promotes accepted claims.
+At the assigned path: the claim-evidence map with per-claim status (supported / contested / single-run / contradicted), condition tables, rival-explanation notes, and ranked open questions. If asked to prepare a reflection artifact, additionally propose a JSON file under the assigned `reports/` scope with `observation`, `protocol_check`, `counterevidence`, `alternatives`, `next_options`, `prediction`, `decision` and an `evidence` array of project-relative `path`/actual `sha256` pairs. Include an unchanged original run output or blocked-run diagnostic, and distinguish the specialist's proposed decision from the core's later acceptance. Everything is a proposal; the core alone promotes accepted claims.
 
 ## Checks
 

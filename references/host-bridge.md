@@ -11,20 +11,20 @@ One iteration per assignment attempt:
 ```text
 core decision          host facility                    back to core
 --------------         ----------------------------     --------------------
-1. handoff packet  --> 2. isolated subagent session --> 4. accept receipt
-   saved under          executes the packet: task        (validates digest,
-   handoffs/, brief     brief + one skill + evidence     records, task runs)
-   updated              paths only (no full history)
-                        3. subagent writes artifacts
-                           + fills the receipt template
+1. handoff packet  --> 2. host selects session  --> 3. accept receipt
+   saved under          verifies packet + creates       (validates digest;
+   handoffs/, brief     receipt before tool calls        task becomes running)
+   updated              4. execute approved work; write task-local artifacts
+                        5. reconcile host jobs; submit to core
 ```
 
 1. **Issue.** The core runs `handoff`, saves the printed packet under `handoffs/` at a new path, and rewrites the current brief in `research-log.md`. No host interaction yet.
-2. **Dispatch.** The host spawns a fresh subagent/task session carrying only the minimal context: the packet, the one selected skill, the evidence paths with hashes, and the output boundaries. A fork inheriting the core's full conversation is not isolation. Session choice (`fresh`/`reuse`/`current`) follows the session lifecycle policy in the core contract.
-3. **Execute and self-report.** The subagent performs the bounded task, writes artifacts strictly inside the assigned output scope, then fills `templates/handoff-receipt.json` from its own actual execution facts (below).
-4. **Accept.** The core verifies the receipt against the task contract and runs `accept`. The executor may already have written artifacts inside its assigned scope by the time the receipt is recorded; that is expected and not an error - output freshness is enforced at packet generation, and artifact inspection happens at submission, not here. The task becomes `running` in state; the brief is updated. If verification fails, the core records a blocker instead of accepting.
+2. **Prepare.** The host selects the requested `fresh`, `reuse` or `current` session and checks the packet with only its selected skill, evidence hashes, contract and output boundaries. A fork inheriting the core's full conversation is not fresh isolation. Fill `templates/handoff-receipt.json` from observed session and model facts before any external call.
+3. **Accept.** The core validates the receipt and invokes `accept`, moving the task to `running`. If acceptance fails, do not run external tools; reconcile any accidentally started executor first. The helper tolerates already existing scoped outputs for compatibility, but that is not permission to bypass the pre-call gate.
+4. **Execute.** Before each external call the host runs `check-tool` with the active task ID and packet ID, approved server, operation and exact scope; refuse a mismatch. Read-like tool names do not prove read-only arguments: the host must inspect parameters and prohibit writes in planning/analysis. Keep call provenance; record job IDs with `host-event`. The helper cannot intercept an uncooperative host.
+5. **Submit.** Reconcile job status and executor termination before `task-status submitted` or `blocked`, then let the core accept or replan the work.
 
-The loop then continues with `task-status` (submitted after the executor stops, completed after core acceptance), each step rewriting the brief. Every arrow in the diagram is a point where a human can read the brief, open the artifacts, and intervene.
+The loop then continues with `task-status` (submitted after the executor stops, completed after core acceptance), each step rewriting the brief. Record any external job ID and actual running/terminal state with `host-event` after acceptance; a recorded running job blocks submission even when the executor claims to have stopped. `watch` reports silent active tasks and recorded jobs but does not implement the host-level watchdog's receipt-stall, blocker-age, brief-drift or project-silence checks, nor dispatch, stop or query real jobs. The host must reconcile external status before terminal events. The core then considers a fresh bounded task, a justified phase decision or stopping; neither the helper nor a watchdog chooses the next scientific action. Every arrow is a human intervention point.
 
 ## Receipt auto-generation rules
 
@@ -66,7 +66,7 @@ The loop can stall silently: a running task with no submission, a packet issued 
 
 | Check | Default threshold | Report |
 |---|---|---|
-| Running task silent | No history event for the `active_task` while `running` for 2 hours | Task id, last event, last brief update, suggested action: inspect executor or move to blocked |
+| Running task silent | No history event for each task in `active_tasks` while `running` for 2 hours | Task id, last event, last brief update, suggested action: inspect executor or move to blocked |
 | Receipt stall | Packet file under `handoffs/` with no matching acceptance for 6 hours | Packet path, task id, whether an executor was ever accepted |
 | Blocker age | Any open blocker older than 24 hours | Blocker text, age, tasks waiting on it |
 | Brief drift | Brief missing, older than the newest history event, or contradicting `research-state.json` (phase, active task, blockers) | Both readings side by side; the core skipped its brief duty |
@@ -87,7 +87,7 @@ A heartbeat, when nothing is wrong:
 
 ```text
 [watchdog 2026-09-30T14:05+08:00] project ./projects/graph-study OK
-  phase=execute active_task=t17 blockers=0 last_decision=assignment-accepted brief_age=12m
+  phase=execute active_tasks=t17 blockers=0 last_decision=assignment-accepted brief_age=12m
 ```
 
 ### What the watchdog is not

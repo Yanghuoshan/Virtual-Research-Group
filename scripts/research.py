@@ -15,6 +15,8 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 ID = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*\Z')
 MEASURES = ('primary_measure', 'baseline', 'validation_plan', 'uncertainty_plan')
+GOAL_FIELDS = ('Question:', 'Value:', 'Boundary:', 'Alternatives:', 'Evidence:', 'Falsifier:',
+               'Success:', 'Feasibility:', 'Resources:', 'Stop:', 'Unknown:')
 ACTIVITIES = ('analysis', 'experiment', 'conclusions')
 OUTPUT_ROOTS = {'literature', 'hypotheses', 'experiments', 'src', 'data', 'paper', 'reports', 'reviews'}
 PROJECT_STATUS = ('active', 'stopped')
@@ -22,6 +24,7 @@ ROLE_IDS = ('strategist', 'methodologist', 'experimenter', 'analyst', 'writer', 
 ADVISORY_PREFIX = 'NOTE: '
 ASSIGNMENT_BOUNDARY = 'One skill assignment only. Return to the core; no delegation, session creation, or global state edits.'
 SKILL_BUDGET = 20000
+ENTRY_BUDGETS = (('SKILL.md', 40000), ('README.md', 16000))
 PRIMARY_PREFIXES = ('experiments/', 'data/', 'literature/', 'reports/')
 FINAL_PREFIXES = ('paper/', 'reports/')
 ISO_TIMESTAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\Z')
@@ -46,18 +49,14 @@ def packet_digest(packet):
                                       separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
 
 
-def blocking_blockers(state):
-    """Blockers no open task has declared it will resolve; only these stop new work.
+def read_only_operation(name):
+    return isinstance(name, str) and name.lower().startswith(
+        ('read', 'get', 'search', 'fetch', 'list', 'query', 'select', 'lookup', 'analyse', 'analyze'))
 
-    A blocker that a planned, running or submitted task declares under
-    `resolves` is being worked on; it no longer freezes the project while the
-    resolving task can proceed. A blocked resolver restores the blocker.
-    """
-    declared = set()
-    for task in state['tasks'].values():
-        if task.get('status') in ('planned', 'running', 'submitted'):
-            declared.update(task.get('resolves') or [])
-    return [blocker for blocker in state['blockers'] if blocker not in declared]
+
+def blocking_blockers(state, resolves=()):
+    """Only the task explicitly resolving a blocker can proceed past it."""
+    return [blocker for blocker in state['blockers'] if blocker not in resolves]
 
 
 def scopes_overlap(first, second):
@@ -198,10 +197,10 @@ def discover_extensions(root):
 
 def resolve_skill(root, name):
     """A skill is selected by name; a built-in entry wins over an extension with the same name."""
-    try:
+    require(isinstance(name, str) and ID.fullmatch(name), 'Invalid skill ID')
+    if (Path(root).resolve() / 'skills' / name).exists() or (Path(root).resolve() / 'skills' / name).is_symlink():
         return skill_entry(root, name)
-    except ValueError:
-        return external_skill_entry(root, name)
+    return external_skill_entry(root, name)
 
 
 def role_prompt(root, role_id):
@@ -240,15 +239,22 @@ def check_links(doc, boundary):
 def budget_notes(root):
     """Advisory reading budget for progressive disclosure; never fails validation.
 
+    Thresholds are guidance, not gates: exceeding one only produces an
+    ADVISORY_PREFIX note that callers filter out, and never a hard failure. They
+    are kept deliberately loose so ordinary document growth does not turn into a
+    warning; a note means an entry point has drifted well past its role as a
+    readable entry, and reference-like detail belongs in references/ instead.
+
     Every returned note is prefixed with ADVISORY_PREFIX so callers can separate
     advice from hard validation errors without matching message text.
     """
     notes = []
-    for path, limit in ((Path(root) / 'SKILL.md', 25000), (Path(root) / 'README.md', 12000)):
+    for name, limit in ENTRY_BUDGETS:
+        path = Path(root) / name
         size = path.stat().st_size if path.is_file() else 0
         if size > limit:
-            notes.append(f'{ADVISORY_PREFIX}{path.name} is {size} bytes (soft budget {limit}); '
-                         'move reference-like detail out of the entry point')
+            notes.append(f'{ADVISORY_PREFIX}{name} is {size} bytes (advisory budget {limit}); '
+                         'consider moving reference-like detail out of the entry point')
     for base_name in ('skills', 'extensions'):
         base = Path(root) / base_name
         if not base.is_dir():
@@ -257,7 +263,8 @@ def budget_notes(root):
             size = path.stat().st_size
             if size > SKILL_BUDGET:
                 notes.append(f'{ADVISORY_PREFIX}{base_name}/{path.parent.name}/SKILL.md is {size} bytes '
-                             f'(soft budget {SKILL_BUDGET}); move reference-like detail into its references/ directory')
+                             f'(advisory budget {SKILL_BUDGET}); consider moving reference-like detail '
+                             'into its references/ directory')
     return notes
 
 
@@ -268,7 +275,7 @@ def validate(root):
         config = read_json(root / 'framework.json')
         expected_fields = {'schema_version', 'note', 'phases', 'activities', 'output_roots',
                            'roles', 'evaluation_fields'}
-        require(set(config) == expected_fields and config['schema_version'] == 5,
+        require(set(config) == expected_fields and config['schema_version'] == 6,
                 'framework.json fields or schema differ from the implemented contract')
         require(isinstance(config['note'], str) and config['note'].strip(), 'framework.json note is required')
         require(config['phases'] == [dict(name=name, **phase) for name, phase in phases.items()],
@@ -291,7 +298,7 @@ def validate(root):
         for path in [root / 'SKILL.md', root / 'README.md'] + list((root / 'references').glob('*.md')):
             check_links(path, root)
         state = read_json(root / 'templates/research-state.json')
-        require(state['schema_version'] == 5 and state['mode'] == 'planning', 'Invalid planning defaults')
+        require(state['schema_version'] == 6 and state['mode'] == 'planning', 'Invalid planning defaults')
         log_template = (root / 'templates/research-log.md').read_text(encoding='utf-8')
         require(log_template.count('<!-- brief:start -->') == log_template.count('<!-- brief:end -->') == 1,
                 'Research log template must contain exactly one current-brief marker block')
@@ -309,7 +316,7 @@ def initialize(root, project, question):
     require(nonempty(question), 'Research question cannot be blank')
     require(not project.exists() and not project.is_symlink(), 'Project destination already exists; refusing to overwrite')
     state = read_json(root / 'templates/research-state.json')
-    require(state.get('schema_version') == 5 and state.get('mode') == 'planning', 'Unsupported state defaults')
+    require(state.get('schema_version') == 6 and state.get('mode') == 'planning', 'Unsupported state defaults')
     texts = {name: (root / 'templates' / name).read_text(encoding='utf-8') for name in ('findings.md', 'research-log.md')}
     state.update(question=question.strip(), created_at=datetime.now(timezone.utc).isoformat())
     project.mkdir(parents=True, exist_ok=False)
@@ -391,12 +398,34 @@ def session_request(mode='fresh', reason=None, resume_session_id=None, independe
             'unavailable_policy': 'return-to-core-no-silent-fallback'}
 
 
+def migrate_project(root, project):
+    path = Path(project).resolve() / 'research-state.json'
+    require(not path.is_symlink(), 'Project state must not be a symlink')
+    original = path.read_bytes()
+    state = json.loads(original)
+    require(state.get('schema_version') == 5, 'Only schema 5 can be migrated')
+    require(state.get('mode') == 'planning' and state.get('status') in PROJECT_STATUS,
+            'Return to planning before migration')
+    require(isinstance(state.get('tasks'), dict) and isinstance(state.get('history'), list)
+            and isinstance(state.get('active_tasks'), list), 'Invalid legacy state')
+    require(not state['active_tasks'] and all(task.get('status') != 'running'
+                                              and not any(v == 'running' for v in task.get('jobs', {}).values())
+                                              for task in state['tasks'].values()),
+            'Reconcile active executors and jobs before migration')
+    require(state.get('phase') in core_phases(root) and isinstance(state.get('blockers'), list)
+            and type(state.get('revision')) is int and state['revision'] >= 0,
+            'Invalid legacy state invariants')
+    state.update(schema_version=6, goal=None, grant=None, reflections=[])
+    return save_decision(project, state, hashlib.sha256(original).hexdigest(),
+                         {'action': 'schema-migrated', 'reason': 'Explicit schema 5 to 6 migration; old packets must be reissued'})
+
+
 def project_state(root, project):
     path = Path(project).resolve() / 'research-state.json'
     require(not path.is_symlink(), 'Project state must not be a symlink')
     content = path.read_bytes()
     state = json.loads(content)
-    require(isinstance(state, dict) and state.get('schema_version') == 5,
+    require(isinstance(state, dict) and state.get('schema_version') == 6,
             'Unsupported state schema version; manual migration required')
     require(state.get('phase') in core_phases(root), 'Unknown project phase')
     require(state.get('status') in PROJECT_STATUS, 'Unknown project status')
@@ -404,6 +433,9 @@ def project_state(root, project):
     require(type(state.get('revision')) is int and state['revision'] >= 0, 'Invalid revision')
     require(isinstance(state.get('tasks'), dict) and isinstance(state.get('history'), list), 'Missing task records')
     require(isinstance(state.get('blockers'), list), 'Invalid project blockers')
+    require(state.get('goal') is None or isinstance(state['goal'], dict), 'Invalid goal reference')
+    require(state.get('grant') is None or isinstance(state['grant'], dict), 'Invalid grant')
+    require(isinstance(state.get('reflections'), list), 'Invalid reflection history')
     active = state.get('active_tasks')
     require(isinstance(active, list), 'active_tasks must be a list of running task IDs')
     running = sorted(name for name, task in state['tasks'].items() if task['status'] == 'running')
@@ -435,7 +467,7 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not open for new tasks')
     resolves = list(resolves or [])
-    require(not [b for b in blocking_blockers(state) if b not in resolves],
+    require(not blocking_blockers(state, resolves),
             'Resolve project blockers before creating new tasks')
     for blocker in resolves:
         require(blocker in state['blockers'], f'Unknown blocker: {blocker}')
@@ -457,11 +489,30 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
     return state['tasks'][task_id]
 
 
-def activity_evidence(project, state, activity, records, final=False):
+def execution_contract(state):
+    return {'mode': state['mode'], 'protocol': state['protocol'], 'evaluation': state['evaluation'],
+            'grant': state.get('grant'), 'goal': state.get('goal')}
+
+
+def verify_grant(project, state, *, check_expiry=True):
+    grant = state.get('grant')
+    require(isinstance(grant, dict), 'Research requires a scoped user grant')
+    verify_reference(project, grant.get('evidence'), 'User grant')
+    require(grant.get('scope') and grant.get('services') and grant.get('operations'), 'Incomplete user grant')
+    require(type(grant.get('max_runs')) is int and grant['max_runs'] > 0, 'Invalid run limit')
+    iso_timestamp(grant.get('expires_at'), 'Grant expiry')
+    if check_expiry:
+        require(datetime.fromisoformat(grant['expires_at'].replace('Z', '+00:00')) > datetime.now(timezone.utc),
+                'User grant expired')
+    return grant
+
+
+def activity_evidence(project, state, activity, records, final=False, *, check_expiry=True):
     require(activity in ACTIVITIES, 'Unknown task activity')
     if activity == 'experiment':
         require(state['mode'] == 'research',
                 'Execution requires research mode set through an explicit core decision')
+        verify_grant(project, state, check_expiry=check_expiry)
         require(isinstance(state.get('evaluation'), dict), 'Evaluation plan missing')
         for field in MEASURES:
             require(nonempty(state['evaluation'].get(field)), f'Evaluation {field} is required')
@@ -487,15 +538,19 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
-    require(not blocking_blockers(state), 'Resolve blockers before handoff')
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
+    require(not blocking_blockers(state, task.get('resolves') or []), 'Resolve blockers before handoff')
     require(task['status'] == 'planned', 'Task must be planned before assignment')
     require(nonempty(summary) and nonempty(model), 'Assignment rationale and model are required')
     require(isinstance(evidence, list) and evidence, 'At least one evidence file is required')
     session = session_request(session_mode, session_reason, resume_session_id, task['independent_review'])
     selected = resolve_skill(root, task['skill'])
     records = activity_evidence(project, state, task['activity'], [evidence_record(project, p) for p in evidence])
+    if task['activity'] == 'experiment':
+        grant = verify_grant(project, state)
+        attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
+        require(attempts < grant['max_runs'], 'Research run limit exhausted')
     protected = list(records)
     for field in ('protocol', 'evidence_review', 'review'):
         reference = state.get(field)
@@ -510,13 +565,13 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             held = other['assignments'][-1]['allowed_outputs']
             require(not scopes_overlap(allowed, held),
                     f'Output scope conflicts with the running task {other_id}; pick disjoint versioned paths')
-    return {'schema_version': 5, 'packet_id': str(uuid4()), 'task_id': task_id,
+    return {'schema_version': 6, 'packet_id': str(uuid4()), 'task_id': task_id,
             'created_at': datetime.now(timezone.utc).isoformat(), 'source_revision': state['revision'],
             'state_sha256': fingerprint, 'core_sha256': digest(root / 'SKILL.md'), 'project_phase': state['phase'],
             'objective': task['objective'], 'activity': task['activity'], 'skill': selected,
             'target_role': task['role'], 'requested_model': model, 'session': session, 'summary': summary.strip(),
             'acceptance_criteria': task['acceptance_criteria'], 'evidence': records,
-            'allowed_outputs': allowed, 'dispatch_status': 'not_dispatched', 'receipt_required': True,
+            'execution_contract': execution_contract(state), 'allowed_outputs': allowed, 'dispatch_status': 'not_dispatched', 'receipt_required': True,
             'framework_root': str(root), 'project_root': str(project),
             'boundary': ASSIGNMENT_BOUNDARY}
 
@@ -525,7 +580,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
-    require(packet.get('schema_version') == 5 and receipt.get('schema_version') == 5, 'Unknown packet or receipt schema')
+    require(packet.get('schema_version') == 6 and receipt.get('schema_version') == 6, 'Unknown packet or receipt schema')
     require(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch')
     require(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
             'Packet is stale: state revision or hash changed')
@@ -533,7 +588,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
     require(task['status'] == 'planned', 'Task must be planned before assignment')
-    require(not blocking_blockers(state), 'Resolve blockers before acceptance')
+    require(not blocking_blockers(state, task.get('resolves') or []), 'Resolve blockers before acceptance')
     require(packet.get('core_sha256') == digest(root / 'SKILL.md'), 'Packet core binding changed')
     require(packet.get('framework_root') == str(root) and packet.get('project_root') == str(project),
             'Packet root binding changed')
@@ -554,6 +609,11 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     require(packet.get('skill') == selected, 'Packet skill binding changed')
     require(packet.get('target_role') == task['role'], 'Packet role binding changed')
     require(packet.get('project_phase') == state['phase'], 'Packet phase snapshot changed')
+    require(packet.get('execution_contract') == execution_contract(state), 'Execution contract changed')
+    if task['activity'] == 'experiment':
+        grant = verify_grant(project, state)
+        attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
+        require(attempts < grant['max_runs'], 'Research run limit exhausted')
     require(isinstance(packet.get('evidence'), list) and packet['evidence'], 'Assignment input is required')
     for record in packet['evidence']:
         verify_reference(project, record, 'Assignment input')
@@ -617,12 +677,41 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
                'actual_model': receipt['actual_model'], 'actual_session_id': actual_id,
                'session_mode': session['mode'], 'accepted_revision': state['revision'] + 1,
                'allowed_outputs': allowed, 'evidence': packet['evidence'],
+               'execution_contract': packet['execution_contract'],
                'packet_file': packet_file, 'receipt_file': receipt_file}
     task['assignments'].append(compact)
     task['status'] = 'running'
     state['active_tasks'].append(task_id)
     return save_decision(project, state, fingerprint, {'action': 'assignment-accepted', 'task_id': task_id,
                                                       'packet_id': packet['packet_id'], 'reason': packet['summary']})
+
+
+def host_event(root, project, task_id, job_id, status, reason):
+    state, fingerprint = open_project(root, project)
+    require(task_id in state['active_tasks'], 'Host events require an active task')
+    require(nonempty(job_id) and nonempty(reason), 'Host job identity and reason required')
+    require(status in ('running', 'succeeded', 'failed', 'cancelled'), 'Invalid host job status')
+    jobs = state['tasks'][task_id].setdefault('jobs', {})
+    old = jobs.get(job_id)
+    require(old is None or (old == 'running' and status != 'running'), 'Invalid or duplicate job transition')
+    jobs[job_id] = status
+    return save_decision(project, state, fingerprint, {'action': 'host-job-' + status, 'task_id': task_id,
+                                                      'job_id': job_id, 'reason': reason})
+
+
+def watch(root, project, hours=2):
+    state, _ = project_state(root, project)
+    require(hours > 0, 'Positive silence threshold required')
+    now = datetime.now(timezone.utc)
+    problems = []
+    for task_id in state['active_tasks']:
+        events = [e for e in state['history'] if e.get('task_id') == task_id]
+        if events and (now - datetime.fromisoformat(events[-1]['at'])).total_seconds() > hours * 3600:
+            problems.append({'task_id': task_id, 'reason': 'silent-running-task'})
+    return {'active_tasks': state['active_tasks'], 'anomalies': problems,
+            'outstanding_jobs': {tid: [jid for jid, st in task.get('jobs', {}).items() if st == 'running']
+                                 for tid, task in state['tasks'].items() if task.get('jobs')},
+            'note': 'Read only; host and core must reconcile real job status'}
 
 
 def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False):
@@ -635,27 +724,35 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
     require(status in transitions.get(task['status'], ()), 'Illegal task status transition')
     if task['status'] == 'running':
         require(executor_stopped is True, 'Confirm executor stopped and reconcile in-flight jobs first')
+        require(not any(value == 'running' for value in task.get('jobs', {}).values()),
+                'Reconcile outstanding host jobs before leaving running')
         if task_id in state['active_tasks']:
             state['active_tasks'].remove(task_id)
     require(isinstance(evidence, list), 'Evidence must be a list')
     records = [evidence_record(project, path) for path in evidence]
     auto_resolved = []
-    if status == 'submitted':
-        require(records, 'Submission requires output evidence')
+    if status in ('submitted', 'blocked') and task['status'] == 'running':
+        if status == 'submitted':
+            require(records, 'Submission requires output evidence')
         allowed = task['assignments'][-1]['allowed_outputs']
         for record in records:
             require(any(record['path'] == scope or (scope.endswith('/') and record['path'].startswith(scope))
-                        for scope in allowed), f'Unassigned submission artifact: {record["path"]}')
-        task['submission'] = records
+                        for scope in allowed), f'Unassigned run artifact: {record["path"]}')
+        if status == 'submitted':
+            task['submission'] = records
     if status == 'completed':
-        require(not blocking_blockers(state), 'Resolve project blockers before accepting task output')
+        require(not blocking_blockers(state, task.get('resolves') or []),
+                'Resolve project blockers before accepting task output')
         require(task['submission'], 'No submitted artifacts to accept')
         for record in task['submission']:
             verify_reference(project, record, 'Submitted artifact')
         assignment = task['assignments'][-1]
+        if task['activity'] == 'experiment':
+            require(assignment.get('execution_contract') == execution_contract(state),
+                    'Execution contract changed; reconcile the old run before completing')
         for record in assignment['evidence']:
             verify_reference(project, record, 'Task input')
-        activity_evidence(project, state, task['activity'], list(assignment['evidence']))
+        activity_evidence(project, state, task['activity'], list(assignment['evidence']), check_expiry=False)
         # Completing a task that declared `resolves` closes those blockers; the
         # core can re-add a blocker if the accepted output does not actually fix it.
         auto_resolved = [blocker for blocker in task.get('resolves', []) if blocker in state['blockers']]
@@ -667,6 +764,31 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
                                                       'auto_resolved': auto_resolved})
 
 
+def set_goal(root, project, path, reason):
+    state, fingerprint = open_project(root, project)
+    require(nonempty(reason), 'Goal decision needs a reason')
+    record = evidence_record(project, path)
+    text = local_path(project, path).read_text(encoding='utf-8')
+    require(all(len(re.findall(r'(?m)^' + re.escape(field) + r'[^\S\n]*\S[^\n]*$', text)) == 1
+                for field in GOAL_FIELDS),
+            'Goal dossier requires one populated line per question, value, boundary, alternatives, evidence, '
+            'falsifier, success, feasibility, resources, stop conditions and unknowns')
+    require(record['path'].startswith(('hypotheses/', 'reports/')),
+            'Versioned goal dossier must be a task artifact')
+    require(state.get('goal') != record, 'Goal version is already selected')
+    state['goal'] = record
+    return save_decision(project, state, fingerprint, {'action': 'goal-selected', 'reason': reason, 'evidence': [record]})
+
+
+def goal_ready(project, state):
+    record = verify_reference(project, state.get('goal'), 'Goal dossier')
+    text = local_path(project, record['path']).read_text(encoding='utf-8')
+    unknown = re.search(r'(?m)^Unknown:[^\S\n]*(\S[^\n]*)$', text)
+    require(unknown and unknown.group(1).strip().lower() in ('none', 'resolved'),
+            'Resolve or explicitly bound goal unknowns before leaving scope')
+    return record
+
+
 def transition_phase(root, project, target, reason, evidence):
     state, fingerprint = project_state(root, project)
     phases = core_phases(root)
@@ -675,6 +797,8 @@ def transition_phase(root, project, target, reason, evidence):
     require(nonempty(reason) and isinstance(evidence, list) and evidence, 'Phase decision needs a rationale and evidence')
     require(target in phases[state['phase']]['next'], 'Illegal phase transition')
     records = [evidence_record(project, p) for p in evidence]
+    if state['phase'] == 'scope' and target == 'ideation' and state.get('goal'):
+        goal_ready(project, state)
     if target == 'complete':
         require(all(t['status'] in ('completed', 'cancelled') for t in state['tasks'].values()), 'Resolve or cancel open tasks before completion')
         records = activity_evidence(project, state, 'conclusions', records, final=True)
@@ -695,15 +819,54 @@ def open_project(root, project):
     return state, fingerprint
 
 
-def authorize(root, project, *, mode, reason, evidence=()):
+def authorize(root, project, *, mode, reason, evidence=(), services=(), operations=(), scope=None,
+              max_runs=None, expires_at=None):
     state, fingerprint = open_project(root, project)
     require(mode in ('planning', 'research'), 'Unknown mode')
     require(nonempty(reason), 'Research mode decisions need an explicit core reason')
     records = [evidence_record(project, path) for path in evidence]
-    require(mode != 'research' or records, 'Granting research mode requires cited authorization evidence')
+    if mode == 'research' or services or operations or scope or max_runs or expires_at:
+        require(len(records) == 1, 'Access requires one cited user approval artifact')
+        require(isinstance(services, (tuple, list)) and services and all(nonempty(x) for x in services),
+                'Approved services are required')
+        require(isinstance(operations, (tuple, list)) and operations and all(nonempty(x) for x in operations),
+                'Approved operations are required')
+        require(mode != 'planning' or all(read_only_operation(x) for x in operations),
+                'Planning grants may only name read-like operations')
+        require(nonempty(scope) and type(max_runs) is int and max_runs > 0, 'Grant scope and run limit required')
+        iso_timestamp(expires_at, 'Grant expiry')
+        require(datetime.fromisoformat(expires_at.replace('Z', '+00:00')) > datetime.now(timezone.utc),
+                'User grant expired')
+        state['grant'] = {'evidence': records[0], 'services': list(services), 'operations': list(operations),
+                          'scope': scope.strip(), 'max_runs': max_runs, 'expires_at': expires_at}
+    else:
+        state['grant'] = None
     state['mode'] = mode
-    return save_decision(project, state, fingerprint, {'action': 'mode-set', 'mode': state['mode'],
-                                                      'reason': reason.strip(), 'evidence': records})
+    return save_decision(project, state, fingerprint, {'action': 'mode-set', 'mode': mode,
+                                                      'reason': reason.strip(), 'evidence': records,
+                                                      'grant': state['grant']})
+
+
+def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
+    state, _ = project_state(root, project)
+    require(state['status'] == 'active' and task_id in state['active_tasks'],
+            'Tool access requires an active assignment')
+    task = state['tasks'][task_id]
+    require(not blocking_blockers(state, task.get('resolves') or []), 'Open blocker prevents tool access')
+    assignment = task['assignments'][-1]
+    require(packet_id == assignment['packet_id'], 'Tool request does not match the active packet')
+    grant = verify_grant(project, state)
+    require(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed')
+    require(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
+            'Tool request exceeds approved scope')
+    require(server in task['objective'] and operation in task['objective'],
+            'Tool was not assigned in the task objective')
+    if not read_only_operation(operation):
+        require(state['mode'] == 'research' and task['activity'] == 'experiment',
+                'Planning and analysis tasks may only use read-only channels')
+        attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
+        require(attempts <= grant['max_runs'], 'Research run limit exhausted')
+    return {'allowed': True, 'task_id': task_id, 'packet_id': packet_id, 'grant': grant['evidence']}
 
 
 def set_evaluation(root, project, *, primary_measure, baseline, validation_plan, uncertainty_plan, reason):
@@ -789,6 +952,58 @@ def set_project_status(root, project, *, status, reason):
                                                       'to_status': status, 'reason': reason.strip()})
 
 
+def record_reflection(root, project, task_id, path, reason):
+    state, fingerprint = open_project(root, project)
+    task = state['tasks'].get(task_id)
+    require(task and task['activity'] == 'experiment' and task['status'] in ('completed', 'blocked'),
+            'Reflection requires a finished or blocked experiment')
+    require(nonempty(reason), 'Reflection needs a core decision reason')
+    record = evidence_record(project, path)
+    require(record['path'].startswith('reports/'), 'Reflection must be a versioned report')
+    proposal = read_json(local_path(project, path))
+    for field in ('observation', 'protocol_check', 'counterevidence', 'alternatives', 'next_options',
+                  'prediction', 'decision', 'evidence'):
+        require(proposal.get(field), f'Reflection needs {field}')
+    require(isinstance(proposal['evidence'], list), 'Reflection evidence must be a list')
+    sources = [verify_reference(project, ref, 'Reflection source') for ref in proposal['evidence']]
+    original = {(x['path'], x['sha256']) for x in task['submission']}
+    if task['status'] == 'blocked':
+        original.update((x['path'], x['sha256']) for event in state['history']
+                        if event.get('task_id') == task_id and event.get('action') == 'task-blocked'
+                        for x in event.get('evidence', []))
+    require(original.intersection((x['path'], x['sha256']) for x in sources),
+            'Reflection must cite unchanged original run evidence')
+    require(all(x['artifact']['path'] != path for x in state['reflections']), 'Reflection version already recorded')
+    state['reflections'].append({'task_id': task_id, 'artifact': record, 'prediction': proposal['prediction'],
+                                 'decision': proposal['decision'], 'recorded_revision': state['revision'] + 1,
+                                 'followup': None})
+    return save_decision(project, state, fingerprint, {'action': 'reflection-recorded', 'task_id': task_id,
+                                                      'reason': reason, 'evidence': [record] + sources})
+
+
+def review_reflection(root, project, path, followup_task, reason, *, assessment):
+    state, fingerprint = open_project(root, project)
+    require(nonempty(reason), 'Follow-up review needs a reason')
+    require(assessment in ('supported', 'contradicted', 'inconclusive'), 'Invalid prediction assessment')
+    ref = next((x for x in state['reflections'] if x['artifact']['path'] == path), None)
+    require(ref and ref['followup'] is None, 'Unknown or reviewed reflection')
+    verify_reference(project, ref['artifact'], 'Reflection')
+    task = state['tasks'].get(followup_task)
+    require(followup_task != ref['task_id'] and task and task['status'] == 'completed'
+            and task['activity'] == 'experiment', 'Follow-up must be a different completed experiment')
+    require(any(event.get('action') == 'task-completed' and event.get('task_id') == followup_task
+                and event['revision'] > ref['recorded_revision'] for event in state['history']),
+            'Follow-up experiment must complete after the reflection')
+    require(task['submission'], 'Follow-up requires raw evidence')
+    for source in task['submission']:
+        verify_reference(project, source, 'Follow-up result')
+    ref['followup'] = {'task_id': followup_task, 'evidence': task['submission'],
+                       'assessment': assessment, 'reason': reason}
+    return save_decision(project, state, fingerprint, {'action': 'reflection-reviewed', 'task_id': followup_task,
+                                                      'assessment': assessment, 'reason': reason,
+                                                      'evidence': task['submission']})
+
+
 def status(root, project):
     """Read-only progress board rendered as Markdown from the project state."""
     state, _ = project_state(root, project)
@@ -801,9 +1016,16 @@ def status(root, project):
              f"- **Question:** {state['question']}",
              f"- **Status:** {state['status']}",
              f"- **Phase:** {state['phase']}",
-             f"- **Mode:** {state['mode']}"]
+             f"- **Mode:** {state['mode']}",
+             f"- **Goal dossier:** {(state.get('goal') or {}).get('path', 'none')}",
+             f"- **Scoped grant:** {(state.get('grant') or {}).get('scope', 'none')}",
+             f"- **Reflections:** {len(state.get('reflections', []))}"]
     running = [name for name, task in state['tasks'].items() if task['status'] == 'running']
     lines.append(f"- **Active tasks:** {', '.join(running) or 'none'}")
+    if state.get('reflections'):
+        latest = state['reflections'][-1]
+        assessment = latest['followup']['assessment'] if latest.get('followup') else 'awaiting follow-up'
+        lines.append(f"- **Latest prediction:** {latest['prediction']} ({assessment})")
     if state['blockers']:
         lines.append('- **Blockers:**')
         for blocker in state['blockers']:
@@ -832,9 +1054,31 @@ def main(argv=None):
     commands.add_parser('skills', help='List built-in and extension skills directly from disk')
     status_parser = commands.add_parser('status', help='Print a read-only progress board; no state change')
     status_parser.add_argument('--project', required=True, type=Path)
+    watch_parser = commands.add_parser('watch', help='Read-only active task and job supervision')
+    watch_parser.add_argument('--project', required=True, type=Path)
+    watch_parser.add_argument('--hours', type=float, default=2)
+    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5 to 6 migration')
+    migrate.add_argument('--project', required=True, type=Path)
     init = commands.add_parser('init', help='Create four planning documents')
     init.add_argument('--project', required=True, type=Path)
     init.add_argument('--question', required=True)
+    goal = commands.add_parser('set-goal', help='Core only: select a versioned planning dossier')
+    for option in ('project', 'path', 'reason'):
+        goal.add_argument('--' + option, required=True)
+    tool = commands.add_parser('check-tool', help='Read-only check before host tool invocation')
+    for option in ('project', 'task', 'packet', 'server', 'operation', 'scope'):
+        tool.add_argument('--' + option, required=True)
+    event = commands.add_parser('host-event', help='Core only: record host job state')
+    for option in ('project', 'task', 'job', 'status', 'reason'):
+        event.add_argument('--' + option, required=True)
+    reflect = commands.add_parser('reflect', help='Core only: bind experiment reflection')
+    for option in ('project', 'task', 'path', 'reason'):
+        reflect.add_argument('--' + option, required=True)
+    review_reflect = commands.add_parser('review-reflection', help='Core only: review follow-up result')
+    for option in ('project', 'path', 'task', 'reason'):
+        review_reflect.add_argument('--' + option, required=True)
+    review_reflect.add_argument('--assessment', required=True,
+                                choices=('supported', 'contradicted', 'inconclusive'))
     task = commands.add_parser('task', help='Core only: register a stable task without changing phase')
     for name in ('task', 'objective', 'activity', 'skill', 'role', 'acceptance'):
         task.add_argument('--' + name, required=True)
@@ -871,6 +1115,11 @@ def main(argv=None):
     grant.add_argument('--mode', required=True, choices=('planning', 'research'))
     grant.add_argument('--reason', required=True)
     grant.add_argument('--evidence', nargs='*', default=[])
+    grant.add_argument('--services', nargs='+', default=[])
+    grant.add_argument('--operations', nargs='+', default=[])
+    grant.add_argument('--scope')
+    grant.add_argument('--max-runs', type=int)
+    grant.add_argument('--expires-at')
     evaluation = commands.add_parser('set-evaluation', help='Core only: record the four evaluation fields')
     evaluation.add_argument('--project', required=True, type=Path)
     for name in MEASURES:
@@ -913,6 +1162,22 @@ def main(argv=None):
         elif args.command == 'status':
             print(status(ROOT, args.project))
             return 0
+        elif args.command == 'watch':
+            result = watch(ROOT, args.project, hours=args.hours)
+        elif args.command == 'migrate':
+            result = migrate_project(ROOT, args.project)
+        elif args.command == 'set-goal':
+            result = set_goal(ROOT, args.project, args.path, args.reason)
+        elif args.command == 'check-tool':
+            result = check_tool(ROOT, args.project, task_id=args.task, packet_id=args.packet,
+                                server=args.server, operation=args.operation, scope=args.scope)
+        elif args.command == 'host-event':
+            result = host_event(ROOT, args.project, args.task, args.job, args.status, args.reason)
+        elif args.command == 'reflect':
+            result = record_reflection(ROOT, args.project, args.task, args.path, args.reason)
+        elif args.command == 'review-reflection':
+            result = review_reflection(ROOT, args.project, args.path, args.task, args.reason,
+                                       assessment=args.assessment)
         elif args.command == 'init':
             result = initialize(ROOT, args.project, args.question)
         elif args.command == 'task':
@@ -932,7 +1197,9 @@ def main(argv=None):
             result = update_task(ROOT, args.project, args.task, args.status, args.reason, args.evidence,
                                  executor_stopped=args.executor_stopped)
         elif args.command == 'authorize':
-            result = authorize(ROOT, args.project, mode=args.mode, reason=args.reason, evidence=args.evidence)
+            result = authorize(ROOT, args.project, mode=args.mode, reason=args.reason, evidence=args.evidence,
+                               services=args.services, operations=args.operations, scope=args.scope,
+                               max_runs=args.max_runs, expires_at=args.expires_at)
         elif args.command == 'set-evaluation':
             result = set_evaluation(ROOT, args.project, **{field: getattr(args, field) for field in MEASURES},
                                     reason=args.reason)

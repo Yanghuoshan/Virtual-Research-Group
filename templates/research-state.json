@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "question": "",
   "phase": "scope",
   "tasks": {},
@@ -8,6 +8,9 @@
   "status": "active",
   "revision": 0,
   "mode": "planning",
+  "goal": null,
+  "grant": null,
+  "reflections": [],
   "evaluation": {"primary_measure": null, "baseline": null, "validation_plan": null, "uncertainty_plan": null},
   "protocol": {"path": null, "sha256": null},
   "evidence_review": {"status": "unverified", "path": null, "sha256": null},

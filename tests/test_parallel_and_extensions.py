@@ -58,7 +58,7 @@ class AssignmentTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:r1', **changes):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        result = dict(schema_version=5, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=6, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], packet_sha256=digest, accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00', actual_role=packet['target_role']['id'],
                       actual_model='provider/model-a', actual_session_mode=packet['session']['mode'],
@@ -105,15 +105,16 @@ class AssignmentTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'ISO 8601'):
                 self.accept(packet, accepted_at=value)
 
-    def test_blocker_being_resolved_no_longer_freezes_the_project(self):
+    def test_resolver_proceeds_without_unblocking_unrelated_tasks(self):
         self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline not reproduced')
         # Creating the fixing task is possible while the blocker is open.
         task = self.create('t1', resolves=['Missing baseline'])
         self.assertEqual(task['resolves'], ['Missing baseline'])
         # It can be assigned and run.
         self.accept(self.packet())
-        # An unrelated new task is fine while the fix is in flight.
-        self.create('t2')
+        # The fix does not authorize unrelated work while the blocker remains open.
+        with self.assertRaises(ValueError):
+            self.create('t2')
         # Completing the fixing task removes the blocker automatically.
         self.write('hypotheses/out-v1.md')
         self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Executor stopped',

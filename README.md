@@ -38,7 +38,7 @@ These are focused methods, not a mandatory sequence. A graph evaluator does not 
 
 ## Host Bridge and Watchdog
 
-A host agent executes each packet in an isolated session and fills the receipt from actual execution facts; a scheduled read-only watchdog reports loop anomalies to the human without changing state. Contracts and thresholds: [host bridge](references/host-bridge.md); visual map: [framework diagrams](references/architecture-diagrams.md).
+A cooperating host agent executes each packet in the requested fresh, reused or current session and fills the receipt from actual execution facts; an optional host-level scheduled watchdog may report loop anomalies to the human without changing state. Contracts and thresholds: [host bridge](references/host-bridge.md); visual map: [framework diagrams](references/architecture-diagrams.md).
 
 ## Install
 
@@ -73,6 +73,10 @@ python3 scripts/research.py status --project ./projects/graph-study
 
 Initialization creates only `research-state.json`, `research-brief.md`, `research-log.md` and `findings.md`. `handoff` prints one explicit task request; it saves nothing, runs nothing and changes no state. The host executes; the core owns acceptance and the next decision. See [operations](references/operations.md).
 
+## Planning, Execution, and Feedback
+
+In planning mode the core may explore several bounded candidate directions, select a versioned goal dossier with `set-goal`, and hold a separately approved retrieval grant without authorizing experiments. Research mode requires an explicit scoped user grant, expiry, attempt limit, frozen protocol and evaluation fields. Packets snapshot the execution contract; `check-tool` offers a read-only host preflight, `host-event` records job statuses, and `watch` reports active-task anomalies without taking action. After an experiment, `reflect` binds a raw-evidence-backed proposal and prediction; `review-reflection` connects a later experimental result. None of these commands launches a model, enforces host calls without host cooperation, decides scientific truth or authorizes new work by itself. See [operations](references/operations.md) and [host bridge](references/host-bridge.md).
+
 ## Phase, Task, and Session
 
 - **Phase:** a project-level research goal and exit criteria; working phases contain multiple tasks, not single executable steps.
@@ -84,7 +88,7 @@ Several tasks may run in parallel under mutually exclusive output scopes. `accep
 
 ## Reading Project State
 
-Read `research-state.json` in order: `status`, `blockers` (unresolved blockers stop new work; a planned, running or submitted resolver temporarily suppresses its blocker, but a blocked resolver does not), `phase`, `active_tasks`, and `history` newest-last. `mode` (`planning`/`research`) is the single experiment gate. `research-log.md` opens with the current brief the core rewrites at every decision, and `scripts/research.py status --project ...` renders the same state as a one-page board. See [session policy](SKILL.md#session-lifecycle) and [operations](references/operations.md).
+Read `research-state.json` in order: `status`, `blockers` (only the task explicitly resolving a blocker may proceed while it remains open), `phase`, `goal`, `grant`, `active_tasks`, `reflections`, and `history` newest-last. `mode` (`planning`/`research`) is the single experiment gate. `research-log.md` opens with the current brief the core rewrites at every decision, and `scripts/research.py status --project ...` renders the same state as a one-page board. See [session policy](SKILL.md#session-lifecycle) and [operations](references/operations.md).
 
 ## Extend Without Adding a Routing Layer
 
@@ -92,9 +96,9 @@ Add `skills/<name>/SKILL.md` with single-line `name` and `description` frontmatt
 
 ## Migration and Limits
 
-State, packet and receipt schemas are now 5; older schemas are rejected rather than silently reinterpreted. Schema 4 dropped the authorization flags, the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration notes](references/architecture.md). Schema 5 adds parallel tasks with exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). Audit records keep `schema_version` 2. No existing user research runs were found in the workspace; preserve external projects' evidence before manual migration.
+State, packet and receipt schemas are now 6; older schemas are rejected rather than silently reinterpreted. `migrate` explicitly upgrades only idle schema-5 projects in planning mode; preserve a backup and reissue old packets. Schema 4 dropped the authorization flags, the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration notes](references/architecture.md). Schema 5 adds parallel tasks with exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). Audit records keep `schema_version` 2. No existing user research runs were found in the workspace; preserve external projects' evidence before manual migration.
 
-Automatic model execution, automatic state transitions and a permissions sandbox are not implemented. The core contract remains authoritative; structural validation cannot prove scientific truth or enforce a model's obedience. Reused skill entries were rewritten as specialists; do not claim they are unchanged upstream copies. No conference LaTeX templates are bundled; download author kits from the venues' official sources. Historical examples and license limitations remain; see [third-party notices](THIRD_PARTY_NOTICES.md). No experiment, schedule, git commit or host installation is part of this refactor.
+Automatic model execution, automatic state transitions, a host tool-call enforcement gateway and a permissions sandbox are not implemented. `check-tool` and `watch` are read-only interfaces for a cooperating host, not deployed services. The core contract remains authoritative; structural validation cannot prove scientific truth or enforce a model's obedience. Reused skill entries were rewritten as specialists; do not claim they are unchanged upstream copies. No conference LaTeX templates are bundled; download author kits from the venues' official sources. Historical examples and license limitations remain; see [third-party notices](THIRD_PARTY_NOTICES.md). No experiment, schedule, git commit or host installation is part of this refactor.
 
 ## License
 

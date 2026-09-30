@@ -7,7 +7,7 @@
 | Document | Owner | Contents |
 |---|---|---|
 | `research-brief.md` | Core | Question, scope, constraints and unresolved definitions |
-| `research-state.json` | Core | Project phase, tasks, active task, revision, status, mode, evaluation, protocol, blockers and audit references |
+| `research-state.json` | Core | Project phase, tasks, active tasks, revision, status, mode, selected goal, scoped grant, evaluation, protocol, blockers, reflection decisions and audit references |
 | `research-log.md` | Core | Human-readable scientific reasoning; events themselves are in state history |
 | `findings.md` | Core | Accepted claim-to-evidence narrative; only the core promotes findings |
 | `handoffs/` | Core | Saved assignment packets and actual execution receipts |
