@@ -1,104 +1,192 @@
-# General AI Research: Flat, Core-Controlled Architecture
+# Virtual Research Group
 
-One core decision maker directly assigns bounded tasks to professional skills; several tasks may run in parallel under mutually exclusive output scopes. There is no domain configuration layer, capability registry, role-to-skill preset, or automatic skill pipeline. All maintained text is English. The original `.claude/` library remains untouched.
+![CI](https://github.com/Yanghuoshan/virtual-research-group/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue)
+![Skills](https://img.shields.io/badge/specialist%20skills-26-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Source Layout
+A virtual research group for AI agents. One core decision maker — the PI — assigns bounded, contract-checked tasks to a flat crew of 26 specialist skills. The core owns the question, the gates and the acceptance decision; a specialist performs only its assigned technical work and returns artifacts or blockers.
 
-| Entry | Responsibility |
+Where most research-agent projects try to *automate* research, this one **governs** it: experiments need a frozen protocol and a scoped grant, claims need an evidence audit, external calls need a preflight check, and every decision is recorded.
+
+## Why
+
+Autonomous research agents fail in predictable ways: they swap models silently, rerun a failed experiment with a different seed, promote an exploratory number into a conclusion, or invent a citation. This framework makes those moves structurally hard.
+
+- **One decision layer.** Only the core selects hypotheses, phases, skills, roles, models, permissions, output paths and acceptance criteria; a specialist may never select another skill, spawn an agent, change a model or advance a phase.
+- **Bounded contracts.** Work is a `task` plus a fingerprinted `assignment packet` plus a `receipt` of actual execution facts; nothing runs on prose.
+- **Evidence before conclusions.** Experiments require research mode, a scoped grant, four evaluation fields and a frozen protocol; conclusions require a verified audit binding `findings.md`, the protocol and raw artifacts by path and hash. Decision history is append-only and state writes are atomic.
+
+## How it works
+
+```mermaid
+graph LR
+    CORE([Core / PI]) -->|task + packet| HOST[Host session]
+    HOST -->|one skill| ART[Artifacts]
+    ART -->|submission| CORE
+    CORE -->|accept or replan| STATE[(research-state.json)]
+    STATE --> BRIEF[brief] --> HUMAN([human])
+    WATCH[watchdog] -.-> HUMAN
+```
+
+1. **Register** a bounded task: objective, activity (`analysis` / `experiment` / `conclusions`), one skill, one role, acceptance criteria.
+2. **Assign** a packet with evidence hashes, fresh output paths, requested model and session mode.
+3. **Accept** a receipt filled from observed facts — actual model, session ID, acceptance time.
+4. **Execute** in the host session; every external call is preflight-checked against task, packet, server, operation and scope.
+5. **Submit**, then let the core accept, replan or reject.
+
+The host executes; the core owns acceptance and the next decision.
+
+## What it guarantees
+
+| Guarantee | Mechanism |
 |---|---|
-| [SKILL.md](SKILL.md) | Authoritative core decisions, research phases, runtime workspace, evidence gates, and role/model handoffs |
-| [skills/](skills/) | One flat namespace of specialist skills; each has inputs, method, outputs, checks, and a no-delegation boundary |
-| [extensions/](extensions/) | Optional third-party skills, held to the same contract; broken entries degrade to warnings |
-| [references/](references/) | Supporting explanations and operator instructions, not another decision layer |
-| [templates/](templates/) | Runtime state, findings, log, audit and acceptance receipt |
-| [scripts/research.py](scripts/research.py) | Optional deterministic helpers; no research decisions or model dispatch |
-| [tests/](tests/) | Flat architecture, task lifecycle, session policy, evidence integrity, input/output boundaries, and English coverage |
-| [provenance.json](provenance.json) | Original hashes and adapted locations for reused source files; never used for routing |
-
-The core owns the question, hypothesis priority, phase, selected skill, role, model, permissions, resources, output scope and acceptance decision. Specialists perform only their assigned technical task and return results or blockers. Only the core updates global findings and state.
-
-## Specialist Skills
-
-The 26 direct entries cover:
-
-- Hypothesis generation and ranking ([brainstorming](skills/brainstorming-research-ideas/SKILL.md)) and [problem reformulation](skills/creative-thinking-for-research/SKILL.md).
-- [Literature review](skills/literature-review/SKILL.md): bounded search, screening and synthesis with traceable coverage limits; external retrieval needs authorization.
-- [Experimental design](skills/experimental-design/SKILL.md): controls, statistical units, power/precision assumptions and validation plans; no protocol freezing or execution.
-- [Research implementation](skills/research-implementation/SKILL.md): accepted designs become tested project code; no experiments, no tuning toward results.
-- [Experiment execution](skills/experiment-execution/SKILL.md), [data processing](skills/data-processing/SKILL.md) and [statistical analysis](skills/statistical-analysis/SKILL.md): run frozen protocols in an assigned sandbox, manifest the data, and run only pre-specified tests.
-- [Results synthesis](skills/results-synthesis/SKILL.md): claim-evidence maps across runs and hypotheses; never promotes claims into findings.
-- [Reproducibility audit](skills/reproducibility-audit/SKILL.md) and [manuscript review](skills/manuscript-review/SKILL.md): version-bound artifact checks and evidence-linked critique; recommendations do not grant approval.
-- [ML manuscript writing](skills/ml-paper-writing/SKILL.md), [systems writing](skills/systems-paper-writing/SKILL.md) and [survey writing](skills/survey-writing/SKILL.md).
-- [Quantitative plotting](skills/academic-plotting/SKILL.md), [diagram design](skills/research-diagram-design/SKILL.md), and [conference talks](skills/presenting-conference-talks/SKILL.md).
-- [Citation identity and claim verification](skills/citation-verification/SKILL.md).
-- [Graph](skills/graph-evaluation/SKILL.md), [vision](skills/vision-evaluation/SKILL.md), [rollout/control](skills/robotics-evaluation/SKILL.md), [symbolic](skills/symbolic-verification/SKILL.md) and [surrogate](skills/scientific-surrogate-validation/SKILL.md) evaluation.
-- [LLM evaluation](skills/llm-evaluation/SKILL.md), [code model evaluation](skills/code-model-evaluation/SKILL.md) and [interpretability validation](skills/interpretability-validation/SKILL.md): audit supplied artifacts; never run benchmarks, execute generated code, or train models.
-
-These are focused methods, not a mandatory sequence. A graph evaluator does not choose or train graph models. A writer does not commission experiments. Only the core accepts protocols, approves audits, and selects follow-up tasks.
-
-## Host Bridge and Watchdog
-
-A cooperating host agent executes each packet in the requested fresh, reused or current session and fills the receipt from actual execution facts; an optional host-level scheduled watchdog may report loop anomalies to the human without changing state. Contracts and thresholds: [host bridge](references/host-bridge.md); visual map: [framework diagrams](references/architecture-diagrams.md).
+| No silent substitution | Missing isolation, unavailable models and failed resume return to the core |
+| No protocol drift | `set-protocol` freezes a path and hash; a mismatch is a blocker |
+| No unverified conclusions | `conclusions` requires a verified audit whose subjects are path/hash pairs |
+| No contaminated exploration | `scratch/` artifacts may inform work but are barred from verified claims |
+| No unaudited external calls | `check-tool` issues a preflight token; `tool-call` records the call |
+| Real independence | `independent_review` is set at creation, forces a fresh session, never dropped |
+| Honest self-check | `reflect` records a prediction; `review-reflection` compares it to later results |
 
 ## Install
 
-This repository is a directory of skill documents, not a Python package. Install by cloning it into the skills directory of the agent you use.
+This repository is a directory of skill documents, not a Python package: there is no module to build and `pip install .` is not supported. Clone it into the skills directory of the agent you use.
 
-| Target | Command |
-|---|---|
-| Claude Code, user level | `git clone <repo-url> ~/.claude/skills/general-ai-research` |
-| Claude Code, project level | `mkdir -p .claude/skills && git clone <repo-url> .claude/skills/general-ai-research` |
-| CodeBuddy, user level | `git clone <repo-url> ~/.codebuddy/skills/general-ai-research` |
-| Any other agent | clone into whatever directory that agent documents for user skills |
+```bash
+git clone https://github.com/Yanghuoshan/virtual-research-group.git ~/.claude/skills/virtual-research-group
+```
 
-Requirements: Python 3.10+, standard library only, no build step. Verify the install:
+Use your agent's own skills directory instead: `~/.codebuddy/skills/` for CodeBuddy, `.claude/skills/` inside a repository for a project-level install, or whatever path your agent documents for user skills. Publishing under a different account? Replace `Yanghuoshan` in the command above and in the badge URL.
+
+**Requirements:** Python 3.10+ (tested on 3.10 and 3.12), standard library only, no build step.
 
 ```bash
 python3 <install-path>/scripts/research.py validate
 python3 -m unittest discover -s <install-path>/tests
 ```
 
-The directory name does not have to match the `name` in `SKILL.md`, but keep it stable so updating is just `git pull`. Updating never touches a research project directory. An agent asked to install must not create projects, run skills, start experiments, install packages or change agent configuration.
+The directory name need not match the `name` in `SKILL.md`, but keep it stable so updating is just `git pull`. Hosts read the frontmatter `name`, so an install cloned under an earlier directory name keeps working. Updating never touches a research project directory.
 
-## Quick Start
+## Agent quick install
+
+Paste this prompt to any coding agent to have it install and verify the bundle:
+
+```text
+Install the Virtual Research Group skill bundle into this agent's user skills directory.
+
+1. Clone https://github.com/Yanghuoshan/virtual-research-group.git into the
+   skills directory this agent documents for user skills (~/.claude/skills/ for
+   Claude Code, ~/.codebuddy/skills/ for CodeBuddy), keeping the directory name
+   virtual-research-group.
+2. Run `python3 <install-path>/scripts/research.py validate` and
+   `python3 -m unittest discover -s <install-path>/tests`. Both must pass.
+3. Report the install path and the validation output.
+
+Do not create a research project, run any skill, start an experiment, install
+packages, or change agent configuration. If a step fails, stop and report the
+error instead of improvising.
+```
+
+The closing instruction is the point: installation is read-only with respect to research. Replace `Yanghuoshan` if you publish under another account.
+
+## Quick start
 
 ```bash
-python3 scripts/research.py validate
-python3 -m unittest discover -s tests -v
-python3 scripts/research.py init --project ./projects/graph-study --question "How do graph perturbations affect inductive generalization?"
-python3 scripts/research.py task --project ./projects/graph-study --task t1 --objective "Compare explanations" --activity analysis --skill brainstorming-research-ideas --role strategist --acceptance "Each candidate names a mechanism and falsifier"
-python3 scripts/research.py handoff --project ./projects/graph-study --task t1 --model current --summary "Develop candidates" --evidence research-brief.md --outputs hypotheses/candidates-v1.md --session fresh
+python3 scripts/research.py init --project ./projects/graph-study \
+  --question "How do graph perturbations affect inductive generalization?"
+
+python3 scripts/research.py task --project ./projects/graph-study --task t1 \
+  --objective "Compare explanations" --activity analysis \
+  --skill brainstorming-research-ideas --role strategist \
+  --acceptance "Each candidate names a mechanism and falsifier"
+
+python3 scripts/research.py handoff --project ./projects/graph-study --task t1 \
+  --model current --summary "Develop candidates" \
+  --evidence research-brief.md --outputs hypotheses/candidates-v1.md --session fresh
+
 python3 scripts/research.py status --project ./projects/graph-study
 ```
 
-Initialization creates only `research-state.json`, `research-brief.md`, `research-log.md` and `findings.md`. `handoff` prints one explicit task request; it saves nothing, runs nothing and changes no state. `assign` composes those mechanics: it saves the packet under `handoffs/`, and with `--session current` it computes the receipt checks from the files on disk and records acceptance in one command; fresh and reuse sessions still need a host-filled receipt. `submit` then records submission and completion in one command, so an ordinary task closes with assign and submit; `brief` mechanically rewrites the current brief block from the state, leaving the narrative to the core. Exploratory work goes under `scratch/`: free to produce, usable as later task evidence, and structurally barred from verified claims. The host executes; the core owns acceptance and the next decision. See [operations](references/operations.md).
+Initialization creates only the four root documents; `assign` composes packet and receipt for small work, `submit` closes a task, and `brief` rewrites the brief block mechanically. Full command set: [operations](references/operations.md).
 
-## Planning, Execution, and Feedback
+## Repository layout
 
-In planning mode the core may explore several bounded candidate directions, select a versioned goal dossier with `set-goal`, and hold a separately approved retrieval grant without authorizing experiments. Research mode requires an explicit scoped user grant, expiry, attempt limit, frozen protocol and evaluation fields. Packets snapshot the execution contract; `check-tool` offers a read-only host preflight that returns a preflight token, `tool-call` records each external call against that token, `host-event` records job statuses, and `watch` reports active-task anomalies without taking action. After a completed or blocked task of any activity, `reflect` binds a raw-evidence-backed proposal and prediction; `review-reflection` connects a later result. None of these commands launches a model, enforces host calls without host cooperation, decides scientific truth or authorizes new work by itself. See [operations](references/operations.md) and [host bridge](references/host-bridge.md).
+| Entry | Responsibility |
+|---|---|
+| [SKILL.md](SKILL.md) | Authoritative core decisions, phases, workspace, evidence gates, handoffs |
+| [skills/](skills/) | Flat namespace of specialist skills: inputs, method, outputs, checks, boundary |
+| [references/](references/) | Supporting explanations and operator instructions |
+| [templates/](templates/) | Runtime state, findings, log, audit and acceptance receipt |
+| [scripts/research.py](scripts/research.py) | Deterministic helpers for explicit core decisions; no dispatch |
+| [tests/](tests/) | Architecture, lifecycle, session policy, evidence integrity, tool semantics |
 
-## Phase, Task, and Session
+Extensions go under [extensions/](extensions/) under the same contract; [framework.json](framework.json) mirrors the phase contract.
 
-- **Phase:** a project-level research goal and exit criteria; working phases contain multiple tasks, not single executable steps.
-- **Task:** a stable `task_id` with objective, activity, skill, role and acceptance criteria. It can be blocked, submitted, retried or completed without changing phase. A task created with `--resolves` names the blockers it exists to fix; completing it removes them.
-- **Assignment packet:** one request to work on an existing task; its `packet_id` changes per attempt and never replaces the task ID.
-- **Session:** a host execution resource. A task may continue in another session; related tasks may reuse a compatible session.
+## Specialist skills
 
-Several tasks may run in parallel under mutually exclusive output scopes. `accept` validates and records a real receipt and starts the task; `task-status` records submission, blocking, acceptance or cancellation. Neither changes phase; only `phase --to ... --reason ... --evidence ...` does.
+The 26 direct entries cover:
 
-## Reading Project State
+<details>
+<summary><strong>Expand the catalog</strong></summary>
 
-Read `research-state.json` in order: `status`, `blockers` (only the task explicitly resolving a blocker may proceed while it remains open), `phase`, `goal`, `grant`, `active_tasks`, `reflections`, and `history` newest-last. `mode` (`planning`/`research`) is the single experiment gate. `research-log.md` opens with the current brief the core rewrites at every decision, and `scripts/research.py status --project ...` renders the same state as a one-page board. See [session policy](SKILL.md#session-lifecycle) and [operations](references/operations.md).
+**Ideation** — [brainstorming-research-ideas](skills/brainstorming-research-ideas/SKILL.md), [creative-thinking-for-research](skills/creative-thinking-for-research/SKILL.md)
 
-## Extend Without Adding a Routing Layer
+**Literature** — [literature-review](skills/literature-review/SKILL.md), [citation-verification](skills/citation-verification/SKILL.md)
 
-Add `skills/<name>/SKILL.md` with single-line `name` and `description` frontmatter and the specialist sections; it is immediately discoverable from disk. Third-party skills go into `extensions/<name>/` under the same contract; a broken extension degrades to a warning and never breaks the bundle. See [extending skills](references/extending-skills.md) and [specialist development](references/domain-development.md).
+**Design and code** — [experimental-design](skills/experimental-design/SKILL.md), [research-implementation](skills/research-implementation/SKILL.md)
 
-## Migration and Limits
+**Execution and data** — [experiment-execution](skills/experiment-execution/SKILL.md), [data-processing](skills/data-processing/SKILL.md), [statistical-analysis](skills/statistical-analysis/SKILL.md)
 
-State, packet and receipt schemas are now 8; older schemas are rejected rather than silently reinterpreted. `migrate` explicitly upgrades only idle schema-5, schema-6 or schema-7 projects in planning mode; preserve a backup and reissue old packets. Schema 7 gave blockers stable IDs (`b1`, `b2`, ...), a resolution history, identity-preserving `--edit`, an explicit `--freeze-all` emergency stop, and completion of finished work that no longer freezes on foreign blockers; schema 8 makes per-task tool channels structured `--tool` assignments checked exactly, replacing objective substring matching. Schema 4 dropped the authorization flags, the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration notes](references/architecture.md). Schema 5 adds parallel tasks with exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). Audit records keep `schema_version` 2. No existing user research runs were found in the workspace; preserve external projects' evidence before manual migration.
+**Domain evaluation** — [graph-evaluation](skills/graph-evaluation/SKILL.md), [vision-evaluation](skills/vision-evaluation/SKILL.md), [robotics-evaluation](skills/robotics-evaluation/SKILL.md), [symbolic-verification](skills/symbolic-verification/SKILL.md), [scientific-surrogate-validation](skills/scientific-surrogate-validation/SKILL.md), [llm-evaluation](skills/llm-evaluation/SKILL.md), [code-model-evaluation](skills/code-model-evaluation/SKILL.md), [interpretability-validation](skills/interpretability-validation/SKILL.md)
 
-Automatic model execution, automatic state transitions, a host tool-call enforcement gateway and a permissions sandbox are not implemented. `check-tool` and `watch` are read-only interfaces for a cooperating host, not deployed services. The core contract remains authoritative; structural validation cannot prove scientific truth or enforce a model's obedience. Reused skill entries were rewritten as specialists; do not claim they are unchanged upstream copies. No conference LaTeX templates are bundled; download author kits from the venues' official sources. Historical examples and license limitations remain; see [third-party notices](THIRD_PARTY_NOTICES.md). No experiment, schedule, git commit or host installation is part of this refactor.
+**Synthesis, audit, writing** — [results-synthesis](skills/results-synthesis/SKILL.md), [reproducibility-audit](skills/reproducibility-audit/SKILL.md), [manuscript-review](skills/manuscript-review/SKILL.md), [ml-paper-writing](skills/ml-paper-writing/SKILL.md), [systems-paper-writing](skills/systems-paper-writing/SKILL.md), [survey-writing](skills/survey-writing/SKILL.md), [academic-plotting](skills/academic-plotting/SKILL.md), [research-diagram-design](skills/research-diagram-design/SKILL.md), [presenting-conference-talks](skills/presenting-conference-talks/SKILL.md)
+
+</details>
+
+These are focused methods, not a mandatory sequence. A graph evaluator does not choose or train graph models; a writer does not commission experiments. Only the core accepts protocols, approves audits and selects follow-up tasks.
+
+## Documentation
+
+- **Operating:** [operations](references/operations.md) — commands, gates, acceptance protocol; [host bridge](references/host-bridge.md) — packets, receipts, watchdog; [workspace](references/workspace.md) — directories, protocols, evidence.
+- **Decisions:** [phase guidance](references/phase-guidance.md), [role guidance](references/role-guidance.md), [model guidance](references/model-guidance.md), [capability selection](references/capability-selection.md), [assignment contracts](references/assignment-contracts.md).
+- **Architecture:** [architecture](references/architecture.md), [architecture diagrams](references/architecture-diagrams.md).
+- **Authoring:** [extending skills](references/extending-skills.md), [domain development](references/domain-development.md).
+
+## Phase, task and session
+
+- **Phase:** a project goal with exit criteria — `scope`, `ideation`, `design`, `execute`, `synthesize`, `write`, `review`, `complete`. Working phases hold multiple tasks.
+- **Task:** a stable `task_id` with objective, activity, skill, role and acceptance criteria; blockable, retryable and completable without changing phase.
+- **Packet:** one request to work on a task; its `packet_id` changes per attempt and never replaces the task ID.
+- **Session:** a host execution resource; a task may continue in another session.
+
+Tasks may run in parallel under mutually exclusive output scopes. Only `phase --to ... --reason ... --evidence ...` changes phase. Read `research-state.json` in order: `status`, `blockers`, `phase`, `goal`, `grant`, `active_tasks`, `reflections`, then `history` newest-last.
+
+## Host bridge and watchdog
+
+A cooperating host executes each packet in the requested fresh, reused or current session and fills the receipt from actual facts — the worst lie this protocol can record is a false `session_isolation_verified`. An optional host-level watchdog reports loop anomalies to the human: silent tasks, unaccepted packets, stale blockers, brief drift and project silence. It is read-only and changes nothing. See [host bridge](references/host-bridge.md).
+
+## Extending
+
+Add `skills/<name>/SKILL.md` with single-line `name` and `description` frontmatter plus the five specialist sections; it is discoverable from disk immediately. Third-party skills go into `extensions/<name>/` under the same contract; a broken extension degrades to a warning, and a name collision resolves in favour of the built-in. See [extending skills](references/extending-skills.md).
+
+## Non-goals and limitations
+
+- **No model dispatch, scheduler or sandbox.** Automatic execution, automatic state transitions, an enforced tool-call gateway and a permissions sandbox are not implemented; `check-tool` and `watch` are read-only interfaces.
+- **The loop needs a cooperating host.** The helpers record decisions; they do not run them.
+- **Validation cannot prove scientific truth.** Hash checks cannot detect omitted dependencies.
+- **One state writer.** Atomic writes are not distributed locking.
+- **No cross-project memory.** Each project is self-contained.
+
+## State schema and migration
+
+State, packet and receipt schemas are now 8; older schemas are rejected rather than silently reinterpreted. `migrate` upgrades only idle schema-5, schema-6 or schema-7 projects in planning mode; back up first and reissue old packets. Schema 7 added stable blocker IDs, a resolution history, identity-preserving `--edit` and an explicit `--freeze-all` stop; schema 8 made per-task tool channels structured `--tool` assignments checked exactly. See [migration notes](references/architecture.md).
+
+## Contributing
+
+- All maintained text is English, including this file; a test enforces it.
+- Run `scripts/research.py validate` and `python3 -m unittest discover -s tests` before a pull request; CI runs both on Python 3.10 and 3.12.
+- New skills carry one technical responsibility and the sections `## Inputs`, `## Method`, `## Outputs`, `## Checks`, `## Boundary`, returning to the core rather than dispatching. Keep orchestration in the core: no domain configuration layer, capability registry or role-to-skill preset.
 
 ## License
 

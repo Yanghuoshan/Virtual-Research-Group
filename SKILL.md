@@ -1,11 +1,11 @@
 ---
-name: general-ai-research
+name: virtual-research-group
 description: Use when managing an AI research project, deciding the next research action, or coordinating sequential specialist tasks across roles or models.
 ---
 
-# General AI Research: Core Decision Maker
+# Virtual Research Group: Core Decision Maker
 
-One decision layer, one flat collection of specialist skills. Read this document as the authoritative research and runtime contract. Supporting scripts check explicit decisions; they do not make research decisions.
+One core decision maker (the PI) and one flat crew of specialist skills (the members). Read this document as the authoritative research and runtime contract. Supporting scripts check explicit decisions; they do not make research decisions.
 
 ## Core Decision Authority
 

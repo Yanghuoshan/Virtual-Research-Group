@@ -3,7 +3,7 @@
 # Install by cloning into your agent's skills directory; see README.md.
 
 [project]
-name = "general-ai-research-framework"
+name = "virtual-research-group-framework"
 version = "0.4.0"
 description = "Flat research skills with core-owned decisions and bounded parallel assignments"
 requires-python = ">=3.10"
