@@ -17,7 +17,7 @@ Core → select task → assign one skill in a session → inspect submission �
 
 ## State and Safety
 
-Schema-6 `research-state.json` contains `tasks`, a list of running `active_tasks` IDs, compact assignment records, and append-only decision `history`. Full assignment packets and actual receipts are saved separately under `handoffs/`. No new routing configuration or task/session service is needed. The four-root-document initialization and hypothesis/run artifact layout remain unchanged.
+Schema-7 `research-state.json` contains `tasks`, a list of running `active_tasks` IDs, compact assignment records, append-only decision `history`, and blockers as stable identity records (`blockers` open, `blocker_history` resolved, `blocker_seq` the ID allocator). Full assignment packets and actual receipts are saved separately under `handoffs/`. No new routing configuration or task/session service is needed. The four-root-document initialization and hypothesis/run artifact layout remain unchanged.
 
 Explicit core commands atomically save state with revision checks. They do not run in the background, choose what to do next, or authorize specialists to edit state. Use one writer; no distributed lock or cost meter is implied. The narrative log is maintained separately and is not part of an atomic cross-file transaction.
 
@@ -25,7 +25,7 @@ Evidence gates follow actual task activity, not project phase. An experiment in 
 
 ## Migration from Schema 1, 2, 3, 4 or 5
 
-No automatic migration is performed. Schema-5 projects may use `migrate --project ...` only while in planning mode, with no running task or recorded in-flight job. Back up state, audit artifacts and host records first, and reconcile external jobs outside the helper. The command retains prior tasks and decisions, adds `goal`, `grant` and `reflections`, increments revision and invalidates unaccepted schema-5 packets; reissue packets and receipts. It does not infer past approvals. Older versions require manual migration; do not merely replace the schema version.
+No automatic migration is performed. Schema-5 and schema-6 projects may use `migrate --project ...` only while in planning mode, with no running task or recorded in-flight job; the schema-6 to 7 step converts free-text blockers and `resolves` references to stable IDs and refuses unidentifiable references rather than guessing. Back up state, audit artifacts and host records first, and reconcile external jobs outside the helper. The command retains prior tasks and decisions, adds `goal`, `grant` and `reflections`, increments revision and invalidates unaccepted schema-5 packets; reissue packets and receipts. It does not infer past approvals. Older versions require manual migration; do not merely replace the schema version.
 
 Migrating schema 3 to schema 4 is a reduction: drop the removed fields (`project_id`, `authorization`, `allowed_tools`, `budget`, `next_action`); record any prior experiment authorization as the evidence cited in a fresh `authorize --mode research` decision; express a paused project as open blockers instead of a status value; and reissue current packets and receipts at schema 4, because their shapes lost the authorization and budget snapshots.
 

@@ -68,7 +68,7 @@ The loop can stall silently: a running task with no submission, a packet issued 
 |---|---|---|
 | Running task silent | No history event for each task in `active_tasks` while `running` for 2 hours | Task id, last event, last brief update, suggested action: inspect executor or move to blocked |
 | Receipt stall | Packet file under `handoffs/` with no matching acceptance for 6 hours | Packet path, task id, whether an executor was ever accepted |
-| Blocker age | Any open blocker older than 24 hours | Blocker text, age, tasks waiting on it |
+| Blocker age | Any open blocker older than 24 hours | Blocker ID and text, age from `opened_at` (preserved across edits), tasks waiting on it |
 | Brief drift | Brief missing, older than the newest history event, or contradicting `research-state.json` (phase, active task, blockers) | Both readings side by side; the core skipped its brief duty |
 | Project silence | Active project with no decision recorded for 48 hours | Phase, last decision, whether this is expected dormancy or a dead loop |
 

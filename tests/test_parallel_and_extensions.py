@@ -58,7 +58,7 @@ class AssignmentTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:r1', **changes):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        result = dict(schema_version=6, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=7, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], packet_sha256=digest, accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00', actual_role=packet['target_role']['id'],
                       actual_model='provider/model-a', actual_session_mode=packet['session']['mode'],
@@ -106,10 +106,11 @@ class AssignmentTests(unittest.TestCase):
                 self.accept(packet, accepted_at=value)
 
     def test_resolver_proceeds_without_unblocking_unrelated_tasks(self):
-        self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline not reproduced')
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline not reproduced')
+        blocker_id = state['blockers'][0]['blocker_id']
         # Creating the fixing task is possible while the blocker is open.
-        task = self.create('t1', resolves=['Missing baseline'])
-        self.assertEqual(task['resolves'], ['Missing baseline'])
+        task = self.create('t1', resolves=[blocker_id])
+        self.assertEqual(task['resolves'], [blocker_id])
         # It can be assigned and run.
         self.accept(self.packet())
         # The fix does not authorize unrelated work while the blocker remains open.
@@ -124,8 +125,9 @@ class AssignmentTests(unittest.TestCase):
         self.assertIn('auto_resolved', self.state()['history'][-1])
 
     def test_blocked_resolver_does_not_suppress_its_blocker(self):
-        self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline unavailable')
-        self.create('fix', resolves=['Missing baseline'])
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Baseline unavailable')
+        blocker_id = state['blockers'][0]['blocker_id']
+        self.create('fix', resolves=[blocker_id])
         self.accept(self.packet('fix'))
         self.tool.update_task(ROOT, self.project, 'fix', 'blocked', 'Cannot access source', [],
                               executor_stopped=True)
@@ -133,16 +135,17 @@ class AssignmentTests(unittest.TestCase):
             self.create('unrelated')
         with self.assertRaisesRegex(ValueError, 'blockers'):
             self.tool.transition_phase(ROOT, self.project, 'ideation', 'Not ready', ['research-brief.md'])
-        self.create('alternative', resolves=['Missing baseline'])
-        self.assertEqual(self.state()['blockers'], ['Missing baseline'])
+        self.create('alternative', resolves=[blocker_id])
+        self.assertEqual(self.state()['blockers'][0]['blocker_id'], blocker_id)
 
     def test_unresolved_blockers_still_stop_new_work(self):
-        self.tool.update_blockers(ROOT, self.project, add='Data access denied', reason='No channel approved')
+        state = self.tool.update_blockers(ROOT, self.project, add='Data access denied', reason='No channel approved')
         with self.assertRaisesRegex(ValueError, 'blockers'):
             self.create('t1')
         with self.assertRaises(ValueError):
             self.packet('t1')
-        self.tool.update_blockers(ROOT, self.project, resolve='Data access denied', reason='Channel approved')
+        self.tool.update_blockers(ROOT, self.project, resolve=state['blockers'][0]['blocker_id'],
+                                 reason='Channel approved')
         self.create('t1')
         self.accept(self.packet())
         self.assertEqual(self.state()['active_tasks'], ['t1'])

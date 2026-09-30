@@ -54,9 +54,64 @@ def read_only_operation(name):
         ('read', 'get', 'search', 'fetch', 'list', 'query', 'select', 'lookup', 'analyse', 'analyze'))
 
 
-def blocking_blockers(state, resolves=()):
-    """Only the task explicitly resolving a blocker can proceed past it."""
-    return [blocker for blocker in state['blockers'] if blocker not in resolves]
+def freeze_active(state):
+    """A freeze-all blocker is an explicit emergency stop for all task work."""
+    return any(blocker.get('freeze_all') for blocker in state['blockers'])
+
+
+def open_blocker_ids(state):
+    return [blocker['blocker_id'] for blocker in state['blockers']]
+
+
+def blocker_summary(state):
+    """One readable line per open blocker, for error messages and boards."""
+    return '; '.join(f"{blocker['blocker_id']} - {blocker['text']}" for blocker in state['blockers']) or 'none'
+
+
+def task_may_proceed(state, resolves):
+    """With open blockers, only a task resolving an open blocker may proceed."""
+    if not state['blockers']:
+        return True
+    if freeze_active(state):
+        return False
+    return any(blocker_id in open_blocker_ids(state) for blocker_id in (resolves or []))
+
+
+def gate_task(state, resolves, label):
+    """Return the reason a task may not proceed right now, or None when it may."""
+    if task_may_proceed(state, resolves):
+        return None
+    blockers = blocker_summary(state)
+    if freeze_active(state):
+        return f'Project is frozen by a freeze-all blocker ({blockers}); resolve or edit it before any task work'
+    if resolves:
+        return (f'{label} declares to resolve {", ".join(resolves)}, all now closed, while these blockers '
+                f'are open ({blockers}); cancel or replan the task, or resolve them explicitly')
+    return f'Open blockers halt unrelated work ({blockers}); declare --resolves naming one of them'
+
+
+def task_resolves_open(state, resolves):
+    """The open blockers a task declared it would resolve."""
+    declared = set(resolves or [])
+    return [blocker for blocker in state['blockers'] if blocker['blocker_id'] in declared]
+
+
+def find_open_blocker(state, blocker_id):
+    require(isinstance(blocker_id, str) and ID.fullmatch(blocker_id), f'Invalid blocker ID: {blocker_id}')
+    for blocker in state['blockers']:
+        if blocker['blocker_id'] == blocker_id:
+            return blocker
+    raise ValueError(f'Unknown blocker (or already resolved): {blocker_id}; open: {blocker_summary(state)}')
+
+
+def close_blocker(state, blocker_id, resolved_by):
+    """Move an open blocker into history, preserving its identity and age."""
+    blocker = find_open_blocker(state, blocker_id)
+    state['blockers'].remove(blocker)
+    entry = dict(blocker)
+    entry.update(resolved_at=datetime.now(timezone.utc).isoformat(), resolved_by=resolved_by)
+    state['blocker_history'].append(entry)
+    return entry
 
 
 def scopes_overlap(first, second):
@@ -275,7 +330,7 @@ def validate(root):
         config = read_json(root / 'framework.json')
         expected_fields = {'schema_version', 'note', 'phases', 'activities', 'output_roots',
                            'roles', 'evaluation_fields'}
-        require(set(config) == expected_fields and config['schema_version'] == 6,
+        require(set(config) == expected_fields and config['schema_version'] == 7,
                 'framework.json fields or schema differ from the implemented contract')
         require(isinstance(config['note'], str) and config['note'].strip(), 'framework.json note is required')
         require(config['phases'] == [dict(name=name, **phase) for name, phase in phases.items()],
@@ -298,7 +353,7 @@ def validate(root):
         for path in [root / 'SKILL.md', root / 'README.md'] + list((root / 'references').glob('*.md')):
             check_links(path, root)
         state = read_json(root / 'templates/research-state.json')
-        require(state['schema_version'] == 6 and state['mode'] == 'planning', 'Invalid planning defaults')
+        require(state['schema_version'] == 7 and state['mode'] == 'planning', 'Invalid planning defaults')
         log_template = (root / 'templates/research-log.md').read_text(encoding='utf-8')
         require(log_template.count('<!-- brief:start -->') == log_template.count('<!-- brief:end -->') == 1,
                 'Research log template must contain exactly one current-brief marker block')
@@ -316,7 +371,7 @@ def initialize(root, project, question):
     require(nonempty(question), 'Research question cannot be blank')
     require(not project.exists() and not project.is_symlink(), 'Project destination already exists; refusing to overwrite')
     state = read_json(root / 'templates/research-state.json')
-    require(state.get('schema_version') == 6 and state.get('mode') == 'planning', 'Unsupported state defaults')
+    require(state.get('schema_version') == 7 and state.get('mode') == 'planning', 'Unsupported state defaults')
     texts = {name: (root / 'templates' / name).read_text(encoding='utf-8') for name in ('findings.md', 'research-log.md')}
     state.update(question=question.strip(), created_at=datetime.now(timezone.utc).isoformat())
     project.mkdir(parents=True, exist_ok=False)
@@ -403,7 +458,8 @@ def migrate_project(root, project):
     require(not path.is_symlink(), 'Project state must not be a symlink')
     original = path.read_bytes()
     state = json.loads(original)
-    require(state.get('schema_version') == 5, 'Only schema 5 can be migrated')
+    version = state.get('schema_version')
+    require(version in (5, 6), 'Only schema 5 or 6 projects can be migrated to schema 7')
     require(state.get('mode') == 'planning' and state.get('status') in PROJECT_STATUS,
             'Return to planning before migration')
     require(isinstance(state.get('tasks'), dict) and isinstance(state.get('history'), list)
@@ -415,9 +471,46 @@ def migrate_project(root, project):
     require(state.get('phase') in core_phases(root) and isinstance(state.get('blockers'), list)
             and type(state.get('revision')) is int and state['revision'] >= 0,
             'Invalid legacy state invariants')
-    state.update(schema_version=6, goal=None, grant=None, reflections=[])
+    if version == 5:
+        state.update(goal=None, grant=None, reflections=[])
+    # Schema 6 to 7: free-text blockers become stable, auditable blocker records.
+    now = datetime.now(timezone.utc).isoformat()
+    add_events = {event.get('add'): event for event in state['history']
+                  if event.get('action') == 'blockers-changed' and event.get('add')}
+    close_events = {event.get('resolve'): event for event in state['history']
+                     if event.get('action') == 'blockers-changed' and event.get('resolve')}
+    id_map, recovered, open_records, history_records = {}, {}, [], []
+    seq = 0
+    for text in state['blockers']:
+        seq += 1
+        id_map[text] = f'b{seq}'
+        event = add_events.get(text)
+        open_records.append({'blocker_id': id_map[text], 'text': text,
+                              'opened_at': event.get('at') if event else now,
+                              'opened_revision': event.get('revision') if event else state['revision'],
+                              'freeze_all': False})
+    # A resolves declaration may name a blocker resolved earlier; recover those from
+    # decision history instead of guessing or silently dropping the reference.
+    declared = {text for task in state['tasks'].values() for text in (task.get('resolves') or [])}
+    for text in sorted(declared - set(id_map)):
+        add_event, close_event = add_events.get(text), close_events.get(text)
+        require(add_event is not None or close_event is not None,
+                f'Cannot identify the blocker named by a resolves declaration: "{text}"; '
+                'fix the reference manually before migration')
+        seq += 1
+        recovered[text] = f'b{seq}'
+        history_records.append({'blocker_id': recovered[text], 'text': text,
+                                'opened_at': (add_event or close_event)['at'],
+                                'opened_revision': (add_event or close_event).get('revision', state['revision']),
+                                'freeze_all': False,
+                                'resolved_at': close_event['at'] if close_event else now,
+                                'resolved_by': {'kind': 'migration', 'revision': state['revision']}})
+    for task in state['tasks'].values():
+        task['resolves'] = [id_map.get(text, recovered.get(text)) for text in (task.get('resolves') or [])]
+    state.update(schema_version=7, blockers=open_records, blocker_history=history_records, blocker_seq=seq)
     return save_decision(project, state, hashlib.sha256(original).hexdigest(),
-                         {'action': 'schema-migrated', 'reason': 'Explicit schema 5 to 6 migration; old packets must be reissued'})
+                         {'action': 'schema-migrated',
+                          'reason': 'Explicit migration to schema 7; blockers now carry stable IDs'})
 
 
 def project_state(root, project):
@@ -425,7 +518,7 @@ def project_state(root, project):
     require(not path.is_symlink(), 'Project state must not be a symlink')
     content = path.read_bytes()
     state = json.loads(content)
-    require(isinstance(state, dict) and state.get('schema_version') == 6,
+    require(isinstance(state, dict) and state.get('schema_version') == 7,
             'Unsupported state schema version; manual migration required')
     require(state.get('phase') in core_phases(root), 'Unknown project phase')
     require(state.get('status') in PROJECT_STATUS, 'Unknown project status')
@@ -433,6 +526,18 @@ def project_state(root, project):
     require(type(state.get('revision')) is int and state['revision'] >= 0, 'Invalid revision')
     require(isinstance(state.get('tasks'), dict) and isinstance(state.get('history'), list), 'Missing task records')
     require(isinstance(state.get('blockers'), list), 'Invalid project blockers')
+    require(isinstance(state.get('blocker_history'), list), 'Invalid blocker history')
+    require(type(state.get('blocker_seq')) is int and state['blocker_seq'] >= 0, 'Invalid blocker sequence')
+    for blocker in state['blockers'] + state['blocker_history']:
+        require(isinstance(blocker, dict) and isinstance(blocker.get('blocker_id'), str)
+                and ID.fullmatch(blocker['blocker_id']) and nonempty(blocker.get('text'))
+                and iso_timestamp(blocker.get('opened_at'), 'Blocker opened_at')
+                and type(blocker.get('freeze_all')) is bool,
+                f'Invalid blocker record: {blocker.get("blocker_id") if isinstance(blocker, dict) else blocker}')
+    for blocker in state['blocker_history']:
+        iso_timestamp(blocker.get('resolved_at'), 'Blocker resolved_at')
+    blocker_ids = [blocker['blocker_id'] for blocker in state['blockers'] + state['blocker_history']]
+    require(len(blocker_ids) == len(set(blocker_ids)), 'Duplicate blocker ID')
     require(state.get('goal') is None or isinstance(state['goal'], dict), 'Invalid goal reference')
     require(state.get('grant') is None or isinstance(state['grant'], dict), 'Invalid grant')
     require(isinstance(state.get('reflections'), list), 'Invalid reflection history')
@@ -465,12 +570,15 @@ def save_decision(project, state, expected_hash, event):
 def create_task(root, project, task_id, objective, *, activity, skill, role, acceptance, independent_review=False,
                 role_prompt_text=None, resolves=None):
     state, fingerprint = project_state(root, project)
-    require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not open for new tasks')
+    require(state['status'] == 'active', 'Project is stopped; reactivate it before creating tasks')
+    require(state['phase'] != 'complete', 'Completed research reopens only through a new scope decision')
     resolves = list(resolves or [])
-    require(not blocking_blockers(state, resolves),
-            'Resolve project blockers before creating new tasks')
-    for blocker in resolves:
-        require(blocker in state['blockers'], f'Unknown blocker: {blocker}')
+    open_ids = open_blocker_ids(state)
+    for blocker_id in resolves:
+        require(blocker_id in open_ids,
+                f'Unknown blocker (or already resolved): {blocker_id}; open: {blocker_summary(state)}')
+    message = gate_task(state, resolves, f'Task {task_id}')
+    require(message is None, message)
     require(isinstance(task_id, str) and ID.fullmatch(task_id), 'Invalid task ID; use lowercase letters, digits and hyphens')
     require(task_id not in state['tasks'], 'Task ID already exists; never overwrite its contract')
     require(nonempty(objective) and nonempty(acceptance), 'Objective and acceptance criteria are required')
@@ -540,7 +648,8 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
-    require(not blocking_blockers(state, task.get('resolves') or []), 'Resolve blockers before handoff')
+    message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
+    require(message is None, message)
     require(task['status'] == 'planned', 'Task must be planned before assignment')
     require(nonempty(summary) and nonempty(model), 'Assignment rationale and model are required')
     require(isinstance(evidence, list) and evidence, 'At least one evidence file is required')
@@ -565,12 +674,13 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             held = other['assignments'][-1]['allowed_outputs']
             require(not scopes_overlap(allowed, held),
                     f'Output scope conflicts with the running task {other_id}; pick disjoint versioned paths')
-    return {'schema_version': 6, 'packet_id': str(uuid4()), 'task_id': task_id,
+    return {'schema_version': 7, 'packet_id': str(uuid4()), 'task_id': task_id,
             'created_at': datetime.now(timezone.utc).isoformat(), 'source_revision': state['revision'],
             'state_sha256': fingerprint, 'core_sha256': digest(root / 'SKILL.md'), 'project_phase': state['phase'],
             'objective': task['objective'], 'activity': task['activity'], 'skill': selected,
             'target_role': task['role'], 'requested_model': model, 'session': session, 'summary': summary.strip(),
             'acceptance_criteria': task['acceptance_criteria'], 'evidence': records,
+            'declared_blockers': task_resolves_open(state, task.get('resolves') or []),
             'execution_contract': execution_contract(state), 'allowed_outputs': allowed, 'dispatch_status': 'not_dispatched', 'receipt_required': True,
             'framework_root': str(root), 'project_root': str(project),
             'boundary': ASSIGNMENT_BOUNDARY}
@@ -580,7 +690,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
-    require(packet.get('schema_version') == 6 and receipt.get('schema_version') == 6, 'Unknown packet or receipt schema')
+    require(packet.get('schema_version') == 7 and receipt.get('schema_version') == 7, 'Unknown packet or receipt schema')
     require(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch')
     require(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
             'Packet is stale: state revision or hash changed')
@@ -588,7 +698,8 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
     require(task['status'] == 'planned', 'Task must be planned before assignment')
-    require(not blocking_blockers(state, task.get('resolves') or []), 'Resolve blockers before acceptance')
+    message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
+    require(message is None, message)
     require(packet.get('core_sha256') == digest(root / 'SKILL.md'), 'Packet core binding changed')
     require(packet.get('framework_root') == str(root) and packet.get('project_root') == str(project),
             'Packet root binding changed')
@@ -730,7 +841,7 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
             state['active_tasks'].remove(task_id)
     require(isinstance(evidence, list), 'Evidence must be a list')
     records = [evidence_record(project, path) for path in evidence]
-    auto_resolved = []
+    auto_resolved, declared_already_closed = [], []
     if status in ('submitted', 'blocked') and task['status'] == 'running':
         if status == 'submitted':
             require(records, 'Submission requires output evidence')
@@ -741,8 +852,6 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
         if status == 'submitted':
             task['submission'] = records
     if status == 'completed':
-        require(not blocking_blockers(state, task.get('resolves') or []),
-                'Resolve project blockers before accepting task output')
         require(task['submission'], 'No submitted artifacts to accept')
         for record in task['submission']:
             verify_reference(project, record, 'Submitted artifact')
@@ -753,15 +862,24 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
         for record in assignment['evidence']:
             verify_reference(project, record, 'Task input')
         activity_evidence(project, state, task['activity'], list(assignment['evidence']), check_expiry=False)
-        # Completing a task that declared `resolves` closes those blockers; the
-        # core can re-add a blocker if the accepted output does not actually fix it.
-        auto_resolved = [blocker for blocker in task.get('resolves', []) if blocker in state['blockers']]
-        for blocker in auto_resolved:
-            state['blockers'].remove(blocker)
+        # Completion records finished work: foreign open blockers never freeze it,
+        # but an explicit freeze-all emergency stop does.
+        require(not freeze_active(state),
+                f'Project is frozen by a freeze-all blocker ({blocker_summary(state)}); resolve it before completion')
+        # Completing the task closes the open blockers it declared; declared blockers
+        # already closed elsewhere are recorded in the decision, never silently dropped.
+        resolved_now = task_resolves_open(state, task.get('resolves') or [])
+        auto_resolved = [blocker['blocker_id'] for blocker in resolved_now]
+        declared_already_closed = [blocker_id for blocker_id in task.get('resolves', [])
+                                   if blocker_id not in auto_resolved]
+        for blocker in resolved_now:
+            close_blocker(state, blocker['blocker_id'],
+                          {'kind': 'task', 'task_id': task_id, 'revision': state['revision'] + 1})
     task['status'] = status
     return save_decision(project, state, fingerprint, {'action': 'task-' + status, 'task_id': task_id,
                                                       'reason': reason.strip(), 'evidence': records,
-                                                      'auto_resolved': auto_resolved})
+                                                      'auto_resolved': auto_resolved,
+                                                      'declared_already_closed': declared_already_closed})
 
 
 def set_goal(root, project, path, reason):
@@ -793,7 +911,8 @@ def transition_phase(root, project, target, reason, evidence):
     state, fingerprint = project_state(root, project)
     phases = core_phases(root)
     require(state['status'] == 'active' and not state['active_tasks'], 'Stop the running executors before changing phase')
-    require(not blocking_blockers(state), 'Resolve project blockers before changing phase')
+    require(not state['blockers'],
+            f'Resolve project blockers before changing phase ({blocker_summary(state)})')
     require(nonempty(reason) and isinstance(evidence, list) and evidence, 'Phase decision needs a rationale and evidence')
     require(target in phases[state['phase']]['next'], 'Illegal phase transition')
     records = [evidence_record(project, p) for p in evidence]
@@ -852,7 +971,8 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
     require(state['status'] == 'active' and task_id in state['active_tasks'],
             'Tool access requires an active assignment')
     task = state['tasks'][task_id]
-    require(not blocking_blockers(state, task.get('resolves') or []), 'Open blocker prevents tool access')
+    message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
+    require(message is None, message)
     assignment = task['assignments'][-1]
     require(packet_id == assignment['packet_id'], 'Tool request does not match the active packet')
     grant = verify_grant(project, state)
@@ -924,19 +1044,38 @@ def set_audit(root, project, *, kind, path, status, reason):
                                                       'reason': reason.strip()})
 
 
-def update_blockers(root, project, *, add=None, resolve=None, reason):
+def update_blockers(root, project, *, add=None, resolve=None, reason, edit=None, text=None, freeze_all=False):
     state, fingerprint = open_project(root, project)
-    require(nonempty(reason), 'Blocker decision needs an explicit core reason')
-    require(bool(add) or bool(resolve), 'Declare a blocker to add or resolve')
+    require(nonempty(reason), 'Blocker decision needs an explicit core decision reason')
+    require(bool(add) or bool(resolve) or bool(edit), 'Declare a blocker to add, resolve or edit')
+    if edit is not None:
+        require(nonempty(text), 'Editing a blocker requires the replacement text')
+        blocker = find_open_blocker(state, edit)
+        previous = blocker['text']
+        blocker['text'] = text.strip()
+        return save_decision(project, state, fingerprint, {'action': 'blocker-edited', 'blocker_id': edit,
+                                                           'from_text': previous, 'to_text': blocker['text'],
+                                                           'reason': reason.strip()})
     if add is not None:
         require(nonempty(add), 'Blocker text cannot be blank')
-        require(add not in state['blockers'], 'Blocker is already recorded')
-        state['blockers'].append(add)
+        require(not any(blocker['text'] == add.strip() for blocker in state['blockers']),
+                'An open blocker with this text already exists '
+                f'({blocker_summary(state)}); edit it or reword the new blocker')
+        state['blocker_seq'] += 1
+        state['blockers'].append({'blocker_id': f"b{state['blocker_seq']}", 'text': add.strip(),
+                                  'opened_at': datetime.now(timezone.utc).isoformat(),
+                                  'opened_revision': state['revision'] + 1, 'freeze_all': bool(freeze_all)})
     if resolve is not None:
-        require(resolve in state['blockers'], 'Unknown blocker')
-        state['blockers'].remove(resolve)
+        close_blocker(state, resolve, {'kind': 'manual', 'revision': state['revision'] + 1})
     return save_decision(project, state, fingerprint, {'action': 'blockers-changed', 'add': add, 'resolve': resolve,
-                                                      'blockers': list(state['blockers']), 'reason': reason.strip()})
+                                                      'blockers': blocker_summary(state), 'reason': reason.strip()})
+
+
+def list_blockers(root, project):
+    """Read-only view of open and resolved blockers with their stable identities."""
+    state, _ = project_state(root, project)
+    return {'open': state['blockers'], 'history': state['blocker_history'],
+            'note': 'Read only; change blockers with blockers --add, --resolve or --edit'}
 
 
 def set_project_status(root, project, *, status, reason):
@@ -1004,6 +1143,13 @@ def review_reflection(root, project, path, followup_task, reason, *, assessment)
                                                       'evidence': task['submission']})
 
 
+def blocker_age(blocker):
+    """Age of an open blocker in hours, from the identity-preserving opened_at."""
+    opened = datetime.fromisoformat(blocker['opened_at'].replace('Z', '+00:00'))
+    hours = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
+    return f'{hours:.1f}h'
+
+
 def status(root, project):
     """Read-only progress board rendered as Markdown from the project state."""
     state, _ = project_state(root, project)
@@ -1027,11 +1173,13 @@ def status(root, project):
         assessment = latest['followup']['assessment'] if latest.get('followup') else 'awaiting follow-up'
         lines.append(f"- **Latest prediction:** {latest['prediction']} ({assessment})")
     if state['blockers']:
-        lines.append('- **Blockers:**')
+        lines.append(f"- **Blockers:** {len(state['blockers'])} open, {len(state['blocker_history'])} resolved")
         for blocker in state['blockers']:
-            owners = resolving.get(blocker)
+            owners = resolving.get(blocker['blocker_id'])
+            marker = ' [freeze-all]' if blocker.get('freeze_all') else ''
             suffix = f" (being resolved by {', '.join(owners)})" if owners else ' (unresolved)'
-            lines.append(f"  - {blocker}{suffix}")
+            lines.append(f"  - {blocker['blocker_id']}: {blocker['text']}{marker}, "
+                         f"open for {blocker_age(blocker)}{suffix}")
     else:
         lines.append('- **Blockers:** none')
     lines += ['', '## Tasks', '',
@@ -1057,7 +1205,7 @@ def main(argv=None):
     watch_parser = commands.add_parser('watch', help='Read-only active task and job supervision')
     watch_parser.add_argument('--project', required=True, type=Path)
     watch_parser.add_argument('--hours', type=float, default=2)
-    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5 to 6 migration')
+    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5 or 6 to 7 migration')
     migrate.add_argument('--project', required=True, type=Path)
     init = commands.add_parser('init', help='Create four planning documents')
     init.add_argument('--project', required=True, type=Path)
@@ -1084,7 +1232,7 @@ def main(argv=None):
         task.add_argument('--' + name, required=True)
     task.add_argument('--project', required=True, type=Path)
     task.add_argument('--independent-review', action='store_true')
-    task.add_argument('--resolves', nargs='*', default=[], help='Blockers this task is created to resolve')
+    task.add_argument('--resolves', nargs='+', default=[], help='Open blocker IDs this task is created to resolve')
     task.add_argument('--role-prompt', help='Explicit standpoint prompt; required for role ids without a canonical template')
     transfer = commands.add_parser('handoff', help='Print one task assignment; no state change or dispatch')
     transfer.add_argument('--project', required=True, type=Path)
@@ -1135,11 +1283,15 @@ def main(argv=None):
     audit.add_argument('--path', required=True)
     audit.add_argument('--status', required=True, choices=('verified', 'unverified', 'passed', 'pending'))
     audit.add_argument('--reason', required=True)
-    blockers = commands.add_parser('blockers', help='Core only: add or resolve a project blocker')
+    blockers = commands.add_parser('blockers', help='Core only: add, resolve, edit or list project blockers')
     blockers.add_argument('--project', required=True, type=Path)
     blockers.add_argument('--add')
     blockers.add_argument('--resolve')
-    blockers.add_argument('--reason', required=True)
+    blockers.add_argument('--edit')
+    blockers.add_argument('--text')
+    blockers.add_argument('--freeze-all', action='store_true')
+    blockers.add_argument('--list', action='store_true')
+    blockers.add_argument('--reason')
     project_status = commands.add_parser('project-status', help='Core only: activate or stop the project')
     project_status.add_argument('--project', required=True, type=Path)
     project_status.add_argument('--to', required=True, choices=PROJECT_STATUS)
@@ -1209,7 +1361,12 @@ def main(argv=None):
             result = set_audit(ROOT, args.project, kind=args.kind, path=args.path, status=args.status,
                                reason=args.reason)
         elif args.command == 'blockers':
-            result = update_blockers(ROOT, args.project, add=args.add, resolve=args.resolve, reason=args.reason)
+            if args.list:
+                result = list_blockers(ROOT, args.project)
+            else:
+                result = update_blockers(ROOT, args.project, add=args.add, resolve=args.resolve,
+                                         reason=args.reason, edit=args.edit, text=args.text,
+                                         freeze_all=args.freeze_all)
         elif args.command == 'project-status':
             result = set_project_status(ROOT, args.project, status=args.to, reason=args.reason)
         else:

@@ -147,7 +147,7 @@ Writing research conclusions requires a verified audit JSON binding `findings.md
 | `evaluation` (four fields) | `set-evaluation` | Prerequisite for assigning an `experiment` task |
 | `protocol` | `set-protocol` | Freezes a nonempty artifact under `experiments/` |
 | `evidence_review`, `review` | `set-audit` | `verified`/`passed` are checked against the audit file before they are recorded |
-| `blockers` | `blockers` | Unresolved blockers halt unrelated work and phase changes. Only a task explicitly declaring `--resolves` may proceed; completion removes its blocker |
+| `blockers` | `blockers` | Open blockers halt unrelated work and phase changes. A task declaring `--resolves` for an open blocker may proceed, and completing it closes that blocker; only a `freeze-all` blocker halts completion. Blockers carry stable IDs; editing text preserves identity |
 | `status` (`active`, `stopped`) | `project-status` | `stopped` closes task creation, acceptance, task-status, handoffs, phase and gate decisions until reactivated |
 
 Audits under `reviews/` follow `templates/evidence-audit.json`; changed subjects invalidate approval. Stop only after executors exit; stopping preserves records and prevents task changes until reactivation. Repeating a status is refused. Hand-editing state breaks the audit trail. Receipts require `accepted_at` and four `*_checked` flags. Acceptance rechecks core, session and output boundaries but permits outputs written after packet generation.

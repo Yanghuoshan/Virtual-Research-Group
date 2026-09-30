@@ -37,7 +37,7 @@ class TaskLifecycleTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def receipt(self, packet, session_id='host:s1', **changes):
-        result = dict(schema_version=6, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=7, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], accepted=True,
                       accepted_at='2026-01-01T00:00:00+00:00',
                       actual_role=packet['target_role']['id'], actual_model='provider/model-a',
@@ -119,7 +119,7 @@ class TaskLifecycleTests(unittest.TestCase):
         legacy['tasks']['t1']['status'] = 'planned'
         self.save(legacy)
         self.tool.migrate_project(ROOT, self.project)
-        self.assertEqual(self.state()['schema_version'], 6)
+        self.assertEqual(self.state()['schema_version'], 7)
 
     def test_goal_versions_are_bound_and_unknowns_block_scope_exit(self):
         goal = self.output('hypotheses/goal-v1.md')
@@ -153,8 +153,9 @@ class TaskLifecycleTests(unittest.TestCase):
         self.update('submitted', evidence=['hypotheses/t1-v1.md'], executor_stopped=True)
 
     def test_planned_resolver_does_not_unblock_unrelated_work(self):
-        self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Need data')
-        self.create('fix', resolves=['Missing baseline'])
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Need data')
+        blocker_id = state['blockers'][0]['blocker_id']
+        self.create('fix', resolves=[blocker_id])
         with self.assertRaises(ValueError):
             self.create('other')
         self.assertEqual(self.packet('fix')['task_id'], 'fix')
@@ -478,6 +479,107 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn('to_phase', json.loads(output.getvalue()))
         self.assertEqual(self.state()['phase'], 'scope')
 
+    def test_resolver_targets_one_blocker_while_others_stay_open(self):
+        state = self.tool.update_blockers(ROOT, self.project, add='B1 blocking', reason='Need data')
+        first = state['blockers'][0]['blocker_id']
+        state = self.tool.update_blockers(ROOT, self.project, add='B2 unrelated', reason='Second gap')
+        second = state['blockers'][1]['blocker_id']
+        self.create('fix', resolves=[first])
+        self.assertEqual(self.packet('fix', outputs=['hypotheses/fix-v1.md'])['task_id'], 'fix')
+        self.create('late', resolves=[second])
+        with self.assertRaisesRegex(ValueError, 'unrelated work'):
+            self.create('other')
+        with self.assertRaisesRegex(ValueError, 'Unknown blocker'):
+            self.create('phantom', resolves=['b99'])
+
+    def test_editing_blocker_text_keeps_identity_and_resolver(self):
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Need data')
+        blocker_id, opened_at = state['blockers'][0]['blocker_id'], state['blockers'][0]['opened_at']
+        self.create('fix', resolves=[blocker_id])
+        edited = self.tool.update_blockers(ROOT, self.project, edit=blocker_id,
+                                           text='Missing baseline (clarified)', reason='Reword')
+        self.assertEqual(edited['blockers'][0]['blocker_id'], blocker_id)
+        self.assertEqual(edited['blockers'][0]['opened_at'], opened_at)
+        self.assertEqual(self.packet('fix', outputs=['hypotheses/fix-v1.md'])['task_id'], 'fix')
+
+    def test_reopened_blocker_survives_stale_task_completion(self):
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing data', reason='First round')
+        first = state['blockers'][0]['blocker_id']
+        self.create('fix', resolves=[first])
+        self.accept(self.packet('fix', outputs=['hypotheses/fix-v1.md']))
+        self.update('submitted', task_id='fix', evidence=[self.output('hypotheses/fix-v1.md')], executor_stopped=True)
+        # The first round is closed manually, then the same text is reopened as a new round.
+        self.tool.update_blockers(ROOT, self.project, resolve=first, reason='Closed early')
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing data', reason='Second round')
+        reopened = state['blockers'][0]['blocker_id']
+        self.assertNotEqual(reopened, first)
+        # Completing the stale task neither clears the new round nor touches it silently.
+        state = self.update('completed', task_id='fix')
+        self.assertEqual([b['blocker_id'] for b in state['blockers']], [reopened])
+        self.assertEqual([b['blocker_id'] for b in state['blocker_history']], [first])
+        event = state['history'][-1]
+        self.assertEqual(event['auto_resolved'], [])
+        self.assertEqual(event['declared_already_closed'], [first])
+        # A fresh task targeting the reopened round proceeds, and a task still pointing
+        # at the closed round is refused loudly instead of matching by text.
+        self.create('round2', resolves=[reopened])
+        self.assertEqual(self.packet('round2', outputs=['hypotheses/round2-v1.md'])['task_id'], 'round2')
+        self.tool.update_blockers(ROOT, self.project, resolve=reopened, reason='Second round closed')
+        with self.assertRaisesRegex(ValueError, 'Unknown blocker'):
+            self.create('stale', resolves=[first])
+
+    def test_freeze_all_is_an_explicit_recoverable_emergency_stop(self):
+        self.create('t1')
+        state = self.tool.update_blockers(ROOT, self.project, add='Emergency stop', reason='Halt', freeze_all=True)
+        blocker_id = state['blockers'][0]['blocker_id']
+        with self.assertRaisesRegex(ValueError, 'freeze-all'):
+            self.create('fix', resolves=[blocker_id])
+        with self.assertRaisesRegex(ValueError, 'freeze-all'):
+            self.packet()
+        self.tool.update_blockers(ROOT, self.project, resolve=blocker_id, reason='Recovered')
+        self.accept(self.packet())
+        self.update('submitted', evidence=[self.output()], executor_stopped=True)
+        state = self.tool.update_blockers(ROOT, self.project, add='Second stop', reason='Halt again', freeze_all=True)
+        with self.assertRaisesRegex(ValueError, 'freeze-all'):
+            self.update('completed')
+        self.tool.update_blockers(ROOT, self.project, resolve=state['blockers'][0]['blocker_id'], reason='Recovered')
+        self.assertEqual(self.update('completed')['tasks']['t1']['status'], 'completed')
+
+    def test_status_board_shows_blocker_identity_and_resolver(self):
+        state = self.tool.update_blockers(ROOT, self.project, add='Missing baseline', reason='Need data')
+        blocker_id = state['blockers'][0]['blocker_id']
+        self.create('fix', resolves=[blocker_id])
+        board = self.tool.status(ROOT, self.project)
+        self.assertIn(f'{blocker_id}: Missing baseline', board)
+        self.assertIn('being resolved by fix', board)
+
+    def test_migration_converts_blocker_text_to_stable_ids(self):
+        self.create('fix')
+        legacy = self.state()
+        legacy['schema_version'] = 6
+        legacy['blockers'] = ['Missing baseline']
+        legacy['tasks']['fix']['resolves'] = ['Missing baseline']
+        legacy.pop('blocker_history')
+        legacy.pop('blocker_seq')
+        self.save(legacy)
+        state = self.tool.migrate_project(ROOT, self.project)
+        self.assertEqual(state['schema_version'], 7)
+        self.assertEqual(state['blockers'][0]['blocker_id'], 'b1')
+        self.assertEqual(state['blockers'][0]['text'], 'Missing baseline')
+        self.assertEqual(state['tasks']['fix']['resolves'], ['b1'])
+
+    def test_migration_refuses_unidentifiable_resolves_references(self):
+        self.create('fix')
+        legacy = self.state()
+        legacy['schema_version'] = 6
+        legacy['blockers'] = ['Missing baseline']
+        legacy['tasks']['fix']['resolves'] = ['Never recorded anywhere']
+        legacy.pop('blocker_history')
+        legacy.pop('blocker_seq')
+        self.save(legacy)
+        with self.assertRaisesRegex(ValueError, 'Cannot identify'):
+            self.tool.migrate_project(ROOT, self.project)
+
 
 class GateCommandTests(unittest.TestCase):
     """The gates that no specialist may set are opened only by explicit core commands."""
@@ -504,7 +606,7 @@ class GateCommandTests(unittest.TestCase):
     def receipt(self, packet, session_id='host:gate'):
         digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
                                            separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
-        return {'schema_version': 6, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
+        return {'schema_version': 7, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
                 'source_revision': packet['source_revision'], 'packet_sha256': digest, 'accepted': True,
                 'accepted_at': '2026-01-01T00:00:00+00:00', 'actual_role': packet['target_role']['id'],
                 'actual_model': 'provider/model-a', 'actual_session_mode': packet['session']['mode'],
@@ -721,7 +823,7 @@ class GateCommandTests(unittest.TestCase):
             self.tool.set_audit(ROOT, self.project, kind='evidence', path='reviews/a.json', status='passed',
                                 reason='Wrong status for an evidence audit')
 
-    def test_blockers_stop_completion_and_phase_decisions(self):
+    def test_foreign_blocker_freezes_phase_but_not_completion(self):
         self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
                     acceptance='Falsifier per hypothesis')
         packet = self.tool.handoff(ROOT, self.project, 't1', 'Develop candidates', ['research-brief.md'],
@@ -730,18 +832,20 @@ class GateCommandTests(unittest.TestCase):
         self.write_output('hypotheses/t1.md')
         self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Worker returned artifacts', ['hypotheses/t1.md'],
                               executor_stopped=True)
-        # The task is now submitted, so only an open blocker can stop its acceptance.
-        self.tool.update_blockers(ROOT, self.project, add='Baseline unavailable', reason='Baseline missing')
-        self.assertEqual(self.state()['blockers'], ['Baseline unavailable'])
-        with self.assertRaisesRegex(ValueError, 'blockers'):
-            self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Try to accept', [])
+        state = self.tool.update_blockers(ROOT, self.project, add='Baseline unavailable', reason='Baseline missing')
+        blocker_id = state['blockers'][0]['blocker_id']
+        # Completion records finished work even while a foreign blocker is open.
+        self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Accept returned artifacts', [])
+        event = self.state()['history'][-1]
+        self.assertEqual(event['auto_resolved'], [])
+        self.assertEqual(event['declared_already_closed'], [])
+        # Phase decisions still wait for every open blocker.
         with self.assertRaisesRegex(ValueError, 'blockers'):
             self.tool.transition_phase(ROOT, self.project, 'ideation', 'Try to advance', ['research-brief.md'])
-        self.tool.update_blockers(ROOT, self.project, resolve='Baseline unavailable', reason='Baseline reproduced')
-        self.assertEqual(self.state()['blockers'], [])
         with self.assertRaises(ValueError):
-            self.tool.update_blockers(ROOT, self.project, resolve='Unknown blocker', reason='Not recorded')
-        self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Core accepted the artifact', [])
+            self.tool.update_blockers(ROOT, self.project, resolve='b99', reason='Not recorded')
+        self.tool.update_blockers(ROOT, self.project, resolve=blocker_id, reason='Baseline reproduced')
+        self.assertEqual(self.state()['blockers'], [])
         self.tool.transition_phase(ROOT, self.project, 'ideation', 'Scope exit criteria checked', ['research-brief.md'])
         self.assertEqual(self.state()['phase'], 'ideation')
 
@@ -754,11 +858,12 @@ class GateCommandTests(unittest.TestCase):
     def test_blockers_stop_new_tasks_and_stopped_closes_everything(self):
         # Blockers absorb the old paused semantics: no new task may be created while blocked,
         # but gate decisions and task bookkeeping continue on an active project.
-        self.tool.update_blockers(ROOT, self.project, add='Waiting for data', reason='Data request open')
+        state = self.tool.update_blockers(ROOT, self.project, add='Waiting for data', reason='Data request open')
         with self.assertRaisesRegex(ValueError, 'blockers'):
             self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
                         acceptance='Falsifier per hypothesis')
-        self.tool.update_blockers(ROOT, self.project, resolve='Waiting for data', reason='Data received')
+        self.tool.update_blockers(ROOT, self.project, resolve=state['blockers'][0]['blocker_id'],
+                                 reason='Data received')
         self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
                     acceptance='Falsifier per hypothesis')
         # A stopped project closes new tasks, handoffs, phase decisions and gate commands alike.

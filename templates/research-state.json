@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "question": "",
   "phase": "scope",
   "tasks": {},
@@ -15,5 +15,7 @@
   "protocol": {"path": null, "sha256": null},
   "evidence_review": {"status": "unverified", "path": null, "sha256": null},
   "review": {"status": "pending", "path": null, "sha256": null},
-  "blockers": []
+  "blockers": [],
+  "blocker_history": [],
+  "blocker_seq": 0
 }

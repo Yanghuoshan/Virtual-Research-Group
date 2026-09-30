@@ -139,8 +139,8 @@ class ReviewGuardTests(unittest.TestCase):
 
     def test_blockers_remain_blocking(self):
         audit = self.audited()
-        self.mutate(self.project / 'research-state.json', lambda x: x.update(blockers=['Baseline not reproduced']))
-        with self.assertRaises(ValueError):
+        self.tool.update_blockers(ROOT, self.project, add='Baseline not reproduced', reason='Blocking write work')
+        with self.assertRaisesRegex(ValueError, 'blockers'):
             self.handoff(evidence=[audit['path']])
 
     def test_directory_output_cannot_cover_frozen_protocol(self):

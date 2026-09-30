@@ -19,7 +19,7 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 | `set-evaluation` | Record the four evaluation fields | Yes, not phase |
 | `set-protocol` | Freeze a nonempty protocol under `experiments/` | Yes, not phase |
 | `set-audit` | Record an evidence or final review audit from `reviews/` | Yes, not phase |
-| `blockers` | Add or resolve a project blocker | Yes, not phase |
+| `blockers` | Add, resolve, edit or list project blockers (`--list` is read-only) | Yes for add/resolve/edit, not phase |
 | `project-status` | Activate or stop the project | Yes, only this changes project status |
 | `task` | Register a stable task contract, optionally with `--resolves` | Yes, not phase |
 | `handoff` | Print an assignment for a registered task | No |
@@ -55,7 +55,7 @@ Both tasks are planned in `scope`; no phase change occurs. Likewise create as ma
 
 Several tasks may run at the same time; a new assignment is refused only while another running task holds an overlapping output scope. One task still has at most one executor at a time.
 
-A task created with `--resolves "Missing baseline"` declares that it exists to fix that blocker. Only that resolving task may be created, assigned and completed while the blocker is open; unrelated tasks and phase changes stay blocked. Completing it removes the blocker after core review, and the core can re-add it if the output does not actually fix it.
+A task created with `--resolves b3` declares that it exists to fix that open blocker, referenced by its stable ID. While blockers are open, only tasks resolving one of them may be created, assigned or run; unrelated tasks and phase changes stay blocked. Completing such a task closes the open blockers it declared; blockers it declared that were already closed elsewhere are recorded in the decision history, never silently dropped. Foreign open blockers never freeze the completion of finished work; only an explicit `--freeze-all` blocker halts everything, including completion, until resolved. `--resolve` and `--edit` take the blocker ID printed by `--add`; `--edit` rewords the text while keeping the ID and its age, and `--list` prints open and resolved blockers read-only.
 
 Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires research mode, all four evaluation fields and the matching frozen protocol; `conclusions` requires a verified evidence audit (`evidence_review.status == verified`) binding findings, the current protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/`. These gates apply in every project phase, are opened by the gate commands below, and the core is responsible for honest classification and all additional tool/service permissions.
 
@@ -74,11 +74,11 @@ python3 scripts/research.py set-evaluation --project ./projects/study --primary-
   --reason "Core accepted the protocol's estimand and checks"
 python3 scripts/research.py set-protocol --project ./projects/study --path experiments/h1/protocol.md \
   --reason "Core froze the accepted protocol"
-python3 scripts/research.py blockers --project ./projects/study --resolve "Missing baseline" --reason "Baseline reproduced"
+python3 scripts/research.py blockers --project ./projects/study --resolve b1 --reason "Baseline reproduced"
 python3 scripts/research.py project-status --project ./projects/study --to stopped --reason "Planning-only work stops here"
 ```
 
-Granting research mode requires one cited user approval artifact, named services/operations, exact scope, a positive maximum number of experimental attempts across the project and a future ISO expiry. The helper checks the evidence file and fields, not the authenticity of user consent. Returning to planning mode without new grant arguments revokes access. `migrate --project ...` only accepts schema-5 projects with no active tasks and planning mode; first back up and reconcile every host job, then issue new schema-6 packets and receipts. `set-protocol` accepts only a nonempty, nonsymlinked file under `experiments/`.
+Granting research mode requires one cited user approval artifact, named services/operations, exact scope, a positive maximum number of experimental attempts across the project and a future ISO expiry. The helper checks the evidence file and fields, not the authenticity of user consent. Returning to planning mode without new grant arguments revokes access. `migrate --project ...` only accepts schema-5 or schema-6 projects with no active tasks and planning mode; first back up and reconcile every host job, then issue new schema-7 packets and receipts. `set-protocol` accepts only a nonempty, nonsymlinked file under `experiments/`.
 
 Audits are written under `reviews/` from `templates/evidence-audit.json` and only then recorded, because the helper verifies the file before accepting `verified` or `passed`:
 
@@ -148,4 +148,4 @@ Run this only when the cited evidence actually warrants the decision, not automa
 
 ## Compatibility
 
-State, packet and receipt schema are now 6. Older schemas are rejected; only an idle planning schema-5 project has an explicit `migrate` path. Do not just change the version number. Schema 4 dropped the authorization flags (research mode is the single experiment gate), the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration](architecture.md). Schema 5 introduces parallel tasks with mutually exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.
+State, packet and receipt schema are now 7. Older schemas are rejected; idle planning schema-5 and schema-6 projects have an explicit `migrate` path. Schema 7 gives blockers stable IDs, a resolution history, identity-preserving `--edit` and an explicit `--freeze-all` emergency stop. Do not just change the version number. Schema 4 dropped the authorization flags (research mode is the single experiment gate), the `paused` status and the unused `project_id`, `allowed_tools`, `budget` and `next_action` fields; see [migration](architecture.md). Schema 5 introduces parallel tasks with mutually exclusive output scopes (`active_tasks` replaces `active_task`), task-level `resolves` declarations, acceptance that tolerates artifacts written during execution, compact assignment records, and audit schema 2 (reviewer, reviewed_at, verified claims). No original library, external project, host configuration, schedule or experiment is modified by the framework refactor.

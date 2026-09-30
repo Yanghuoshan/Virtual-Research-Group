@@ -21,7 +21,7 @@ TASK_KEYS = {'task_id', 'created_phase', 'objective', 'activity', 'skill', 'role
 PACKET_KEYS = {'schema_version', 'packet_id', 'task_id', 'created_at', 'source_revision',
                'state_sha256', 'core_sha256', 'project_phase', 'objective', 'activity', 'skill',
                'target_role', 'requested_model', 'session', 'summary', 'acceptance_criteria', 'evidence',
-               'execution_contract', 'allowed_outputs', 'dispatch_status', 'receipt_required',
+               'declared_blockers', 'execution_contract', 'allowed_outputs', 'dispatch_status', 'receipt_required',
                'framework_root', 'project_root', 'boundary'}
 SKILL_KEYS = {'name', 'description', 'path', 'sha256'}
 SESSION_KEYS = {'mode', 'reason', 'resume_session_id', 'independent_review', 'status',
@@ -172,7 +172,7 @@ class FlatArchitectureTests(unittest.TestCase):
         config = json.loads((ROOT / 'framework.json').read_text())
         self.assertEqual(set(config), {'schema_version', 'note', 'phases', 'activities',
                                        'output_roots', 'roles', 'evaluation_fields'})
-        self.assertEqual(config['schema_version'], 6)
+        self.assertEqual(config['schema_version'], 7)
         self.assertEqual(config['activities'], ['analysis', 'experiment', 'conclusions'])
         self.assertEqual(set(config['output_roots']), TOOL.OUTPUT_ROOTS)
         self.assertEqual(tuple(config['roles']), TOOL.ROLE_IDS)
@@ -653,7 +653,7 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual({p.name for p in self.project.iterdir()},
                          {'research-state.json', 'research-brief.md', 'research-log.md', 'findings.md'})
         state = self.state()
-        self.assertEqual(state['schema_version'], 6)
+        self.assertEqual(state['schema_version'], 7)
         self.assertEqual(state['mode'], 'planning')
         self.assertNotIn('domain', state)
         for removed in ('authorization', 'allowed_tools', 'budget', 'project_id', 'next_action'):
