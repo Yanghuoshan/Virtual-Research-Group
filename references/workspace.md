@@ -42,4 +42,6 @@ Keep large datasets, checkpoints and bulky outputs in user-approved external sto
 
 ## Per-Task Artifacts
 
-Task outputs stay inside their assigned scope: `literature/`, `hypotheses/`, `experiments/`, `src/`, `data/`, `paper/`, `reports/` or `reviews/`. Specialists write only these artifacts and never global records. Rework uses new versioned paths; earlier outputs can serve as evidence for a later task.
+Task outputs stay inside their assigned scope: `literature/`, `hypotheses/`, `experiments/`, `src/`, `data/`, `paper/`, `reports/`, `reviews/` or `scratch/`. Specialists write only these artifacts and never global records. Rework uses new versioned paths; earlier outputs can serve as evidence for a later task.
+
+`scratch/` is the free exploration channel: quick notes, throwaway analyses and pilot probes that need no acceptance ceremony. A scratch artifact may inform later work as task evidence, but it is structurally barred from verified claims - audits reject any `scratch/` subject, so exploratory material never supports a conclusions task or project completion. When a scratch result matters, redo or promote the work as a proper task output under a primary root.

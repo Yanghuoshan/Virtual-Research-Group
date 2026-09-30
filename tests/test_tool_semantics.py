@@ -187,6 +187,31 @@ class ToolSemanticsTests(unittest.TestCase):
                                      server='da-data', operation='search_content', scope='graph-study')
         self.assertEqual(other['preflight_token'], token)
 
+    def test_tool_call_burst_is_recorded_with_count(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.authorize('planning', ['da-data'], ['search_content'])
+        self.tool.create_task(ROOT, self.project, 'scope-1',
+                              'Search da-data search_content in graph-study',
+                              activity='analysis', skill='literature-review', role='analyst',
+                              acceptance='Bounded retrieval with coverage limits',
+                              tools=['da-data:search_content'])
+        packet = self.tool.handoff(ROOT, self.project, 'scope-1', 'Bounded retrieval', ['research-brief.md'],
+                                   model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        token = self.tool.check_tool(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                     server='da-data', operation='search_content', scope='graph-study')['preflight_token']
+        state = self.tool.record_tool_call(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                           server='da-data', operation='search_content', scope='graph-study',
+                                           token=token, count=5)
+        event = state['history'][-1]
+        self.assertEqual(event['count'], 5)
+        self.assertIn('5 identical calls', event['reason'])
+        for bad in (0, -1, 101, 'many'):
+            with self.subTest(count=bad), self.assertRaises(ValueError):
+                self.tool.record_tool_call(ROOT, self.project, task_id='scope-1', packet_id=packet['packet_id'],
+                                           server='da-data', operation='search_content', scope='graph-study',
+                                           token=token, count=bad)
+
     def test_prose_coincidence_does_not_assign_a_channel(self):
         # 'stat' is in the grant and 'statistics' appears in the objective; under the
         # old substring check this coincidence passed. Only the structural assignment

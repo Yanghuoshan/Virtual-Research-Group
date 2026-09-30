@@ -12,7 +12,7 @@
     {"name": "complete", "next": ["scope"], "goal": "Preserve an accepted research outcome", "exit_criteria": "Reopening requires a new core scope decision"}
   ],
   "activities": ["analysis", "experiment", "conclusions"],
-  "output_roots": ["literature", "hypotheses", "experiments", "src", "data", "paper", "reports", "reviews"],
+  "output_roots": ["literature", "hypotheses", "experiments", "src", "data", "paper", "reports", "reviews", "scratch"],
   "roles": ["strategist", "methodologist", "experimenter", "analyst", "writer", "reviewer", "critic"],
   "evaluation_fields": ["primary_measure", "baseline", "validation_plan", "uncertainty_plan"]
 }

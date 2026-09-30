@@ -71,7 +71,7 @@ python3 scripts/research.py handoff --project ./projects/graph-study --task t1 -
 python3 scripts/research.py status --project ./projects/graph-study
 ```
 
-Initialization creates only `research-state.json`, `research-brief.md`, `research-log.md` and `findings.md`. `handoff` prints one explicit task request; it saves nothing, runs nothing and changes no state. The host executes; the core owns acceptance and the next decision. See [operations](references/operations.md).
+Initialization creates only `research-state.json`, `research-brief.md`, `research-log.md` and `findings.md`. `handoff` prints one explicit task request; it saves nothing, runs nothing and changes no state. `assign` composes those mechanics: it saves the packet under `handoffs/`, and with `--session current` it computes the receipt checks from the files on disk and records acceptance in one command; fresh and reuse sessions still need a host-filled receipt. `submit` then records submission and completion in one command, so an ordinary task closes with assign and submit; `brief` mechanically rewrites the current brief block from the state, leaving the narrative to the core. Exploratory work goes under `scratch/`: free to produce, usable as later task evidence, and structurally barred from verified claims. The host executes; the core owns acceptance and the next decision. See [operations](references/operations.md).
 
 ## Planning, Execution, and Feedback
 

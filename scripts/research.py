@@ -18,7 +18,8 @@ MEASURES = ('primary_measure', 'baseline', 'validation_plan', 'uncertainty_plan'
 GOAL_FIELDS = ('Question:', 'Value:', 'Boundary:', 'Alternatives:', 'Evidence:', 'Falsifier:',
                'Success:', 'Feasibility:', 'Resources:', 'Stop:', 'Unknown:')
 ACTIVITIES = ('analysis', 'experiment', 'conclusions')
-OUTPUT_ROOTS = {'literature', 'hypotheses', 'experiments', 'src', 'data', 'paper', 'reports', 'reviews'}
+OUTPUT_ROOTS = {'literature', 'hypotheses', 'experiments', 'src', 'data', 'paper', 'reports', 'reviews',
+                'scratch'}
 PROJECT_STATUS = ('active', 'stopped')
 ROLE_IDS = ('strategist', 'methodologist', 'experimenter', 'analyst', 'writer', 'reviewer', 'critic')
 ADVISORY_PREFIX = 'NOTE: '
@@ -105,16 +106,7 @@ def write_registry(project, server, registry):
     path = registry_path(project, server)
     require(not path.is_symlink(), f'Tool registry must not be a symlink: tools/{server}.json')
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            json.dump(registry, stream, ensure_ascii=False, indent=2)
-            stream.write('\n')
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
+    atomic_write_json(path, registry)
 
 
 def operation_semantics(project, server, operation):
@@ -221,6 +213,20 @@ def write_json(path, value):
         stream.write('\n')
 
 
+def atomic_write_json(path, value):
+    """Replace one JSON file atomically; the caller owns any pre-replace checks."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=Path(path).parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.write('\n')
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -258,13 +264,14 @@ def core_phases(root):
     return phases
 
 
-def skill_entry(root, name):
+def skill_entry(root, name, base='skills', label='direct'):
+    """One specialist entry from disk; extensions pass the stricter bundled contract checks."""
     require(isinstance(name, str) and ID.fullmatch(name), 'Invalid skill ID')
     root = Path(root).resolve()
-    directory = root / 'skills' / name
-    require(not (root / 'skills').is_symlink() and not directory.is_symlink(), 'Symlinked skill directories are forbidden')
-    path = local_path(root, f'skills/{name}/SKILL.md')
-    require(path == directory / 'SKILL.md' and path.is_file(), f'Missing direct skill: {name}')
+    directory = root / base / name
+    require(not (root / base).is_symlink() and not directory.is_symlink(), 'Symlinked skill directories are forbidden')
+    path = local_path(root, f'{base}/{name}/SKILL.md')
+    require(path == directory / 'SKILL.md' and path.is_file(), f'Missing {label} skill: {name}')
     text = path.read_text(encoding='utf-8')
     parts = text.split('---\n', 2)
     require(len(parts) == 3 and not parts[0], f'Missing frontmatter: {name}')
@@ -274,7 +281,13 @@ def skill_entry(root, name):
         require(separator and key in ('name', 'description') and key not in fields, f'Invalid skill metadata: {name}')
         fields[key] = value.strip()
     require(fields.get('name') == name and nonempty(fields.get('description')), f'Invalid skill identity: {name}')
-    return {'name': name, 'description': fields['description'], 'path': str(path.relative_to(root)), 'sha256': digest(path)}
+    if base == 'extensions':
+        for heading in ('Inputs', 'Method', 'Outputs', 'Checks', 'Boundary'):
+            require(f'## {heading}' in text, f'Missing {heading}: {name}')
+        require('Return to the core' in text and 'Do not dispatch' in text, f'Missing specialist boundary: {name}')
+        check_links(path, path.parent)
+    return {'name': name, 'description': fields['description'], 'path': str(path.relative_to(root)),
+            'sha256': digest(path)}
 
 
 def discover_skills(root):
@@ -292,26 +305,7 @@ def discover_skills(root):
 
 def external_skill_entry(root, name):
     """An extension skill is held to the same contract as a built-in entry."""
-    require(isinstance(name, str) and ID.fullmatch(name), 'Invalid skill ID')
-    root = Path(root).resolve()
-    directory = root / 'extensions' / name
-    path = local_path(root, f'extensions/{name}/SKILL.md')
-    require(path == directory / 'SKILL.md' and path.is_file(), f'Missing extension skill: {name}')
-    text = path.read_text(encoding='utf-8')
-    parts = text.split('---\n', 2)
-    require(len(parts) == 3 and not parts[0], f'Missing frontmatter: {name}')
-    fields = {}
-    for line in parts[1].splitlines():
-        key, separator, value = line.partition(':')
-        require(separator and key in ('name', 'description') and key not in fields, f'Invalid skill metadata: {name}')
-        fields[key] = value.strip()
-    require(fields.get('name') == name and nonempty(fields.get('description')), f'Invalid skill identity: {name}')
-    for heading in ('Inputs', 'Method', 'Outputs', 'Checks', 'Boundary'):
-        require(f'## {heading}' in text, f'Missing {heading}: {name}')
-    require('Return to the core' in text and 'Do not dispatch' in text, f'Missing specialist boundary: {name}')
-    check_links(path, path.parent)
-    return {'name': name, 'description': fields['description'], 'path': str(path.relative_to(root)),
-            'sha256': digest(path)}
+    return skill_entry(root, name, base='extensions', label='extension')
 
 
 def discover_extensions(root):
@@ -500,10 +494,21 @@ def verify_audit(project, reference, label, required_paths, required_prefixes):
                 'Each audit claim needs its text and the support it was given')
     checked = [verify_reference(project, subject, label + ' subject') for subject in subjects]
     paths = {subject['path'] for subject in checked}
+    require(not any(path.startswith('scratch/') for path in paths),
+            'Scratch artifacts cannot support verified claims; redo the work under a primary output root')
     require(set(required_paths).issubset(paths), f'{label} lacks required subject versions')
     primary_paths = paths - set(required_paths) - {record['path']}
     require(any(path.startswith(required_prefixes) for path in primary_paths), f'{label} lacks primary artifacts')
     return [record] + checked
+
+
+def audit_subject_requirements(project, state):
+    """An evidence audit always binds findings.md plus the frozen protocol, when one exists."""
+    required = ['findings.md']
+    protocol_reference = state.get('protocol')
+    if isinstance(protocol_reference, dict) and nonempty(protocol_reference.get('path')):
+        required.append(verify_reference(project, protocol_reference, 'Protocol')['path'])
+    return required
 
 
 def check_outputs(project, outputs, inputs, *, require_new=True):
@@ -647,17 +652,8 @@ def save_decision(project, state, expected_hash, event):
     require(not path.is_symlink() and digest(path) == expected_hash, 'State changed; retry the core decision')
     state['revision'] += 1
     state['history'].append(dict(event, revision=state['revision'], at=datetime.now(timezone.utc).isoformat()))
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            json.dump(state, stream, ensure_ascii=False, indent=2)
-            stream.write('\n')
-        require(not path.is_symlink() and digest(path) == expected_hash, 'State changed; retry the core decision')
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
+    require(not path.is_symlink() and digest(path) == expected_hash, 'State changed; retry the core decision')
+    atomic_write_json(path, state)
     return state
 
 
@@ -733,18 +729,24 @@ def activity_evidence(project, state, activity, records, final=False, *, check_e
         records.append(verify_reference(project, state.get('protocol'), 'Protocol'))
     elif activity == 'conclusions':
         require(state.get('evidence_review', {}).get('status') == 'verified', 'Verified findings required')
-        protocol_reference = state.get('protocol')
-        required = ['findings.md']
-        if isinstance(protocol_reference, dict) and nonempty(protocol_reference.get('path')):
-            required.append(verify_reference(project, protocol_reference, 'Protocol')['path'])
         audited = verify_audit(project, state.get('evidence_review'), 'Evidence review',
-                               required, PRIMARY_PREFIXES)
+                               audit_subject_requirements(project, state), PRIMARY_PREFIXES)
         if final:
             require(state.get('review', {}).get('status') == 'passed', 'Passed review required')
             audited += verify_audit(project, state.get('review'), 'Final review', ['findings.md'], FINAL_PREFIXES)
         require({x['path'] for x in records}.issubset({x['path'] for x in audited}), 'Unreviewed evidence in conclusions request')
         records.extend(audited)
     return list({x['path']: x for x in records}.values())
+
+
+def protected_paths(state, records):
+    """Input evidence plus frozen gate artifacts; assigned outputs may overlap neither."""
+    protected = list(records)
+    for field in ('protocol', 'evidence_review', 'review'):
+        reference = state.get(field)
+        if isinstance(reference, dict) and nonempty(reference.get('path')):
+            protected.append({'path': reference['path']})
+    return protected
 
 
 def handoff(root, project, task_id, summary, evidence, *, model, outputs,
@@ -766,12 +768,7 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
         grant = verify_grant(project, state)
         attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
         require(attempts < grant['max_runs'], 'Research run limit exhausted')
-    protected = list(records)
-    for field in ('protocol', 'evidence_review', 'review'):
-        reference = state.get(field)
-        if isinstance(reference, dict) and nonempty(reference.get('path')):
-            protected.append({'path': reference['path']})
-    allowed = check_outputs(project, outputs, protected)
+    allowed = check_outputs(project, outputs, protected_paths(state, records))
     # Parallel execution is bounded by mutually exclusive output scopes: a running
     # task holds its assigned scopes until it leaves the running state.
     for other_id, other in state['tasks'].items():
@@ -879,12 +876,8 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
                 and last['actual_model'] == receipt['actual_model'],
                 'Resumed session has incompatible skill, role or model')
     # Recheck scope boundaries without requiring the executor's output to remain absent.
-    protected = list(packet['evidence'])
-    for field in ('protocol', 'evidence_review', 'review'):
-        reference = state.get(field)
-        if isinstance(reference, dict) and nonempty(reference.get('path')):
-            protected.append({'path': reference['path']})
-    allowed = check_outputs(project, packet.get('allowed_outputs'), protected, require_new=False)
+    allowed = check_outputs(project, packet.get('allowed_outputs'),
+                            protected_paths(state, packet['evidence']), require_new=False)
     require(allowed == packet['allowed_outputs'], 'Packet output scope changed')
     for other_id, other in state['tasks'].items():
         if other_id != task_id and other['status'] == 'running':
@@ -905,6 +898,50 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
                                                       'packet_id': packet['packet_id'], 'reason': packet['summary']})
 
 
+def assign(root, project, task_id, summary, evidence, *, model, outputs,
+           session_mode='fresh', session_reason=None, resume_session_id=None):
+    """Composite assignment: handoff plus a saved packet under handoffs/.
+
+    A current-session assignment runs in the core's own session, so the four
+    receipt checks are computed here from the files on disk and acceptance is
+    recorded in the same step; the receipt honestly records no isolation claim.
+    Fresh and reuse sessions still require a host-filled receipt.
+    """
+    root, project = Path(root).resolve(), Path(project).resolve()
+    packet = handoff(root, project, task_id, summary, evidence, model=model, outputs=outputs,
+                     session_mode=session_mode, session_reason=session_reason,
+                     resume_session_id=resume_session_id)
+    tag = packet['packet_id'][:8]
+    (project / 'handoffs').mkdir(parents=True, exist_ok=True)
+    packet_file = f'handoffs/{task_id}-request-{tag}.json'
+    write_json(project / packet_file, packet)
+    result = {'task_id': task_id, 'session_mode': packet['session']['mode'], 'packet_file': packet_file}
+    if packet['session']['mode'] != 'current':
+        result['next'] = (f'Host fills the receipt from observed facts, then: accept --packet {packet_file} '
+                          '--receipt <project-relative receipt path>')
+        return result
+    state, fingerprint = project_state(root, project)
+    receipt = {'schema_version': 8, 'task_id': task_id, 'packet_id': packet['packet_id'],
+               'source_revision': packet['source_revision'], 'packet_sha256': packet_digest(packet),
+               'accepted': True, 'accepted_at': datetime.now(timezone.utc).isoformat(),
+               'actual_role': packet['target_role']['id'], 'actual_model': model,
+               'actual_session_mode': 'current', 'actual_session_id': None,
+               'session_isolation_verified': False,
+               'session_notes': 'Composite assignment in the core session; isolation is not claimed and '
+                                'the model is recorded as requested',
+               'state_hash_checked': fingerprint == packet['state_sha256'],
+               'core_hash_checked': digest(root / 'SKILL.md') == packet['core_sha256'],
+               'skill_hash_checked': digest(root / packet['skill']['path']) == packet['skill']['sha256'],
+               'evidence_hashes_checked': all(digest(project / record['path']) == record['sha256']
+                                              for record in packet['evidence'])}
+    receipt_file = f'handoffs/{task_id}-receipt-{tag}.json'
+    write_json(project / receipt_file, receipt)
+    accepted = accept_assignment(root, project, packet, receipt,
+                                 packet_file=packet_file, receipt_file=receipt_file)
+    result.update(receipt_file=receipt_file, task_status='running', state_revision=accepted['revision'])
+    return result
+
+
 def host_event(root, project, task_id, job_id, status, reason):
     state, fingerprint = open_project(root, project)
     require(task_id in state['active_tasks'], 'Host events require an active task')
@@ -918,15 +955,55 @@ def host_event(root, project, task_id, job_id, status, reason):
                                                       'job_id': job_id, 'reason': reason})
 
 
-def watch(root, project, hours=2):
+def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hours=48):
+    """Read-only loop supervision: silent tasks, receipt stalls, aged blockers,
+    brief drift and project silence. Reports only; it never changes state."""
     state, _ = project_state(root, project)
-    require(hours > 0, 'Positive silence threshold required')
+    for name, value in (('task', hours), ('receipt', receipt_hours), ('blocker', blocker_hours),
+                        ('silence', silence_hours)):
+        require(value > 0, f'Positive {name} silence threshold required')
     now = datetime.now(timezone.utc)
+
+    def event_time(value):
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
     problems = []
     for task_id in state['active_tasks']:
         events = [e for e in state['history'] if e.get('task_id') == task_id]
-        if events and (now - datetime.fromisoformat(events[-1]['at'])).total_seconds() > hours * 3600:
+        if events and (now - event_time(events[-1]['at'])).total_seconds() > hours * 3600:
             problems.append({'task_id': task_id, 'reason': 'silent-running-task'})
+    handoffs = Path(project).resolve() / 'handoffs'
+    if handoffs.is_dir():
+        accepted = {e.get('packet_id') for e in state['history']
+                    if e.get('action') == 'assignment-accepted'}
+        for path in sorted(handoffs.glob('*-request-*.json')):
+            age = (now - datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)).total_seconds()
+            try:
+                packet_id = read_json(path).get('packet_id')
+            except (ValueError, OSError):
+                problems.append({'reason': 'receipt-stall', 'detail': f'{path.name}: unreadable packet'})
+                continue
+            if age > receipt_hours * 3600 and packet_id not in accepted:
+                problems.append({'reason': 'receipt-stall',
+                                 'detail': f'{path.name} was never accepted'})
+    for blocker in state['blockers']:
+        opened = event_time(blocker['opened_at'])
+        if (now - opened).total_seconds() > blocker_hours * 3600:
+            problems.append({'reason': 'blocker-age',
+                             'detail': f"{blocker['blocker_id']}: {blocker['text']}"})
+    log = Path(project).resolve() / 'research-log.md'
+    if not log.is_file():
+        problems.append({'reason': 'brief-drift', 'detail': 'research-log.md is missing'})
+    else:
+        text = log.read_text(encoding='utf-8')
+        expected = brief_lines('<!-- brief:start -->\n' + render_brief(state) + '\n<!-- brief:end -->')
+        if brief_lines(text) != expected:
+            problems.append({'reason': 'brief-drift',
+                             'detail': 'the brief block is missing or contradicts research-state.json'})
+    if state['history'] and state['status'] == 'active':
+        if (now - event_time(state['history'][-1]['at'])).total_seconds() > silence_hours * 3600:
+            problems.append({'reason': 'project-silence',
+                             'detail': 'no core decision recorded within the silence threshold'})
     return {'active_tasks': state['active_tasks'], 'anomalies': problems,
             'outstanding_jobs': {tid: [jid for jid, st in task.get('jobs', {}).items() if st == 'running']
                                  for tid, task in state['tasks'].items() if task.get('jobs')},
@@ -992,6 +1069,17 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
                                                       'auto_resolved': auto_resolved,
                                                       'declared_already_closed': declared_already_closed,
                                                       'verdict': verdict})
+
+
+def submit(root, project, task_id, reason, evidence, *, verdict=None):
+    """Composite acceptance: record submission, then core completion.
+
+    Both steps run the full update_task checks unchanged; if completion is
+    refused, the task stays submitted exactly as in the manual two-step flow.
+    """
+    update_task(root, project, task_id, 'submitted', reason, evidence, executor_stopped=True)
+    state = update_task(root, project, task_id, 'completed', reason, [], verdict=verdict)
+    return {'task_id': task_id, 'status': state['tasks'][task_id]['status'], 'revision': state['revision']}
 
 
 def set_goal(root, project, path, reason):
@@ -1115,12 +1203,15 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
                                                semantics['classification'])}
 
 
-def record_tool_call(root, project, *, task_id, packet_id, server, operation, scope, token):
-    """Record one external tool call against the preflight token check-tool issued.
+def record_tool_call(root, project, *, task_id, packet_id, server, operation, scope, token, count=1):
+    """Record external tool calls against the preflight token check-tool issued.
 
     The call is re-validated exactly as at preflight; the recorded token binds the
     logged call to the checked facts, so the audit trail can be reconciled later.
+    A count above one records a burst of identical requests (same task, packet,
+    server, operation and scope) under the one preflight they all share.
     """
+    require(type(count) is int and 1 <= count <= 100, 'Call count must be an integer from 1 to 100')
     result = check_tool(root, project, task_id=task_id, packet_id=packet_id,
                         server=server, operation=operation, scope=scope)
     expected = preflight_token(task_id, packet_id, server, operation, scope,
@@ -1130,7 +1221,9 @@ def record_tool_call(root, project, *, task_id, packet_id, server, operation, sc
     return save_decision(project, state, fingerprint,
                          {'action': 'tool-call-recorded', 'task_id': task_id, 'packet_id': packet_id,
                           'server': server, 'operation': operation, 'scope': scope, 'token': token,
-                          'reason': f'{server}/{operation} recorded against its preflight token'})
+                          'count': count,
+                          'reason': f'{server}/{operation} recorded against its preflight token'
+                                    + (f' ({count} identical calls)' if count > 1 else '')})
 
 
 def set_evaluation(root, project, *, primary_measure, baseline, validation_plan, uncertainty_plan, reason):
@@ -1175,11 +1268,7 @@ def set_audit(root, project, *, kind, path, status, reason):
     label = 'Evidence review' if kind == 'evidence' else 'Final review'
     if status in ('verified', 'passed'):
         if kind == 'evidence':
-            protocol_reference = state.get('protocol')
-            required = ['findings.md']
-            if isinstance(protocol_reference, dict) and nonempty(protocol_reference.get('path')):
-                required.append(verify_reference(project, protocol_reference, 'Protocol')['path'])
-            verify_audit(project, reference, label, required, PRIMARY_PREFIXES)
+            verify_audit(project, reference, label, audit_subject_requirements(project, state), PRIMARY_PREFIXES)
         else:
             verify_audit(project, reference, label, ['findings.md'], FINAL_PREFIXES)
     field = 'evidence_review' if kind == 'evidence' else 'review'
@@ -1389,6 +1478,78 @@ def blocker_age(blocker):
     return f'{hours:.1f}h'
 
 
+def render_brief(state, note=None):
+    """Mechanical current-brief content from the state; the core's own voice is the note."""
+    grant = state.get('grant') or {}
+    lines = [f'- **Updated:** {datetime.now().astimezone().isoformat(timespec="seconds")}',
+             f'- **Status:** {state["status"]}',
+             f'- **Phase:** {state["phase"]}',
+             f'- **Mode:** {state["mode"]}',
+             f'- **Goal:** {(state.get("goal") or {}).get("path", "none")}',
+             f'- **Access:** {grant.get("scope") or "no external grant"}']
+    running = [task for task in state['tasks'].values() if task['status'] == 'running']
+    if running:
+        for task in running:
+            lines.append(f'- **Active task {task["task_id"]}:** {task["objective"]} '
+                         f'(skill {task["skill"]}, role {task["role"]["id"]})')
+    else:
+        lines.append('- **Active tasks:** none')
+    if state['blockers']:
+        lines.append(f'- **Open blockers:** {len(state["blockers"])} open')
+        for blocker in state['blockers']:
+            lines.append(f'  - {blocker["blocker_id"]}: {blocker["text"]}')
+    else:
+        lines.append('- **Open blockers:** none')
+    if state['history']:
+        last = state['history'][-1]
+        lines.append(f'- **Last decision:** {last["action"]} (revision {last["revision"]}): '
+                     f'{last.get("reason", "")}')
+    else:
+        lines.append('- **Last decision:** none yet')
+    lines.append(f'- **Next:** {note.strip() if note and note.strip() else "not recorded; rerun brief with --note"}')
+    return '\n'.join(lines) + '\n'
+
+
+def brief_lines(text):
+    """The mechanical lines of a brief block: everything except the timestamp and the core note."""
+    start, end = '<!-- brief:start -->', '<!-- brief:end -->'
+    if text.count(start) != 1 or text.count(end) != 1:
+        return None
+    block = text.split(start, 1)[1].split(end, 1)[0]
+    return [line for line in block.splitlines()
+            if line.strip() and not line.startswith('- **Updated:**') and not line.startswith('- **Next:**')]
+
+
+def write_brief(root, project, note=None):
+    """Rewrite the current brief block in research-log.md from the state.
+
+    Only the marked block changes; the narrative log outside it is untouched and
+    the state file is not modified. A log without markers gets the block on top.
+    """
+    state, _ = project_state(root, project)
+    log = Path(project).resolve() / 'research-log.md'
+    require(log.is_file() and not log.is_symlink(), 'Missing research-log.md')
+    text = log.read_text(encoding='utf-8')
+    start, end = '<!-- brief:start -->', '<!-- brief:end -->'
+    block = f'{start}\n\n{render_brief(state, note)}\n{end}'
+    if text.count(start) == text.count(end) == 1:
+        updated = text.split(start, 1)[0] + block + text.split(end, 1)[1]
+    elif start not in text and end not in text:
+        updated = block + '\n\n' + text
+    else:
+        raise ValueError('Research log has unbalanced brief markers')
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=log.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(updated)
+        os.replace(temporary, log)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+    return {'brief': 'rewritten', 'revision': state['revision']}
+
+
 def status(root, project):
     """Read-only progress board rendered as Markdown from the project state."""
     state, _ = project_state(root, project)
@@ -1434,122 +1595,165 @@ def status(root, project):
     return '\n'.join(lines) + '\n'
 
 
+def tools_command(args):
+    if args.catalog is not None:
+        return ingest_catalog(ROOT, args.project, args.server, args.catalog,
+                              args.reason or 'Host exported the server tool catalog')
+    if args.confirm:
+        return confirm_semantics(ROOT, args.project, args.server, args.operation, args.semantics, args.reason)
+    return view_registry(ROOT, args.project, args.server)
+
+
+def all_skills():
+    """Built-in skills plus non-shadowed extensions, for the skills listing."""
+    result = discover_skills(ROOT)
+    for name, entry in discover_extensions(ROOT)[0].items():
+        result.setdefault(name, entry)
+    return result
+
+
+# One uniform CLI table: (name, help, ((option, kwargs), ...)). Every decision
+# flag stays explicit; runners bind lazily so patched module functions still run.
+PROJECT = {'required': True, 'type': Path}
+TEXT = {'required': True}
+MANY = {'required': True, 'nargs': '+'}
+STRINGS = {'nargs': '*', 'default': []}
+ASSIGNMENT_OPTIONS = (('project', PROJECT), ('task', TEXT), ('summary', TEXT), ('model', TEXT),
+                      ('evidence', MANY), ('outputs', MANY),
+                      ('session', {'choices': ('fresh', 'reuse', 'current'), 'default': 'fresh'}),
+                      ('session-reason', {}), ('resume-session', {}))
+CLI = (
+    ('validate', 'Validate core contract, flat skills, extensions and provenance', ()),
+    ('skills', 'List built-in and extension skills directly from disk', ()),
+    ('status', 'Print a read-only progress board; no state change', (('project', PROJECT),)),
+    ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, project silence',
+     (('project', PROJECT), ('hours', {'type': float, 'default': 2.0}),
+      ('receipt-hours', {'type': float, 'default': 6.0}),
+      ('blocker-hours', {'type': float, 'default': 24.0}),
+      ('silence-hours', {'type': float, 'default': 48.0}))),
+    ('migrate', 'Explicit idle planning schema 5, 6 or 7 to 8 migration', (('project', PROJECT),)),
+    ('set-goal', 'Core only: select a versioned planning dossier',
+     (('project', PROJECT), ('path', TEXT), ('reason', TEXT))),
+    ('check-tool', 'Read-only check before host tool invocation',
+     (('project', PROJECT),) + tuple((name, TEXT) for name in ('task', 'packet', 'server', 'operation', 'scope'))),
+    ('tools', 'Ingest a host tool catalog, confirm ambiguous semantics, or view registries',
+     (('project', PROJECT), ('server', {}), ('catalog', {}), ('confirm', {'action': 'store_true'}),
+      ('operation', {}), ('semantics', {'choices': ('read', 'write')}), ('reason', {}))),
+    ('tool-call', 'Core only: record an external call against its preflight token',
+     (('project', PROJECT),) + tuple((name, TEXT)
+                                     for name in ('task', 'packet', 'server', 'operation', 'scope', 'token'))
+     + (('count', {'type': int, 'default': 1, 'help': 'Identical calls recorded against one preflight'}),)),
+    ('host-event', 'Core only: record host job state',
+     (('project', PROJECT),) + tuple((name, TEXT) for name in ('task', 'job', 'status', 'reason'))),
+    ('reflect', 'Core only: bind experiment reflection',
+     (('project', PROJECT),) + tuple((name, TEXT) for name in ('task', 'path', 'reason'))),
+    ('review-reflection', 'Core only: review follow-up result',
+     (('project', PROJECT), ('path', TEXT), ('task', TEXT), ('reason', TEXT),
+      ('assessment', {'required': True, 'choices': ('supported', 'contradicted', 'inconclusive')}))),
+    ('init', 'Create four planning documents', (('project', PROJECT), ('question', TEXT))),
+    ('task', 'Core only: register a stable task without changing phase',
+     (('project', PROJECT),) + tuple((name, TEXT)
+                                     for name in ('task', 'objective', 'activity', 'skill', 'role', 'acceptance'))
+     + (('independent-review', {'action': 'store_true'}),
+        ('resolves', {'nargs': '+', 'default': [], 'help': 'Open blocker IDs this task is created to resolve'}),
+        ('tool', {'action': 'append', 'default': [],
+                  'help': 'Assigned external channel as server:operation; repeatable'}),
+        ('role-prompt', {'help': 'Explicit standpoint prompt; required for role ids without a canonical template'}))),
+    ('handoff', 'Print one task assignment; no state change or dispatch', ASSIGNMENT_OPTIONS),
+    ('assign', 'Composite: save the packet under handoffs/; current-session work is auto-accepted',
+     ASSIGNMENT_OPTIONS),
+    ('submit', 'Core only: record submission and completion in one command',
+     (('project', PROJECT), ('task', TEXT), ('reason', TEXT), ('evidence', MANY),
+      ('verdict', {'choices': COMPLETION_VERDICTS,
+                   'help': 'Structured acceptance verdict recorded with the completion'}))),
+    ('brief', 'Core only: mechanically rewrite the current brief block in research-log.md',
+     (('project', PROJECT), ('note', {}))),
+    ('accept', 'Core only: validate and record an actual executor receipt',
+     (('project', PROJECT), ('packet', {'required': True, 'help': 'Project-relative saved packet path'}),
+      ('receipt', {'required': True, 'help': 'Project-relative saved receipt path'}))),
+    ('task-status', 'Core only: record submission, acceptance, blocking or cancellation',
+     (('project', PROJECT), ('task', TEXT), ('status', TEXT), ('reason', TEXT), ('evidence', STRINGS),
+      ('executor-stopped', {'action': 'store_true'}),
+      ('verdict', {'choices': COMPLETION_VERDICTS,
+                   'help': 'Structured acceptance verdict recorded with a completion'}))),
+    ('phase', 'Core only: explicitly change project phase',
+     (('project', PROJECT), ('to', TEXT), ('reason', TEXT), ('evidence', MANY))),
+    ('authorize', 'Core only: set research mode',
+     (('project', PROJECT), ('mode', {'required': True, 'choices': ('planning', 'research')}),
+      ('reason', TEXT), ('evidence', STRINGS), ('services', STRINGS), ('operations', STRINGS),
+      ('scope', {}), ('max-runs', {'type': int}), ('expires-at', {}))),
+    ('set-evaluation', 'Core only: record the four evaluation fields',
+     (('project', PROJECT),) + tuple((measure.replace('_', '-'), TEXT) for measure in MEASURES)
+     + (('reason', TEXT),)),
+    ('set-protocol', 'Core only: freeze the protocol under experiments/',
+     (('project', PROJECT), ('path', TEXT), ('reason', TEXT))),
+    ('set-audit', 'Core only: record an evidence or final review audit',
+     (('project', PROJECT), ('kind', {'required': True, 'choices': ('evidence', 'final')}),
+      ('path', TEXT), ('status', {'required': True, 'choices': ('verified', 'unverified', 'passed', 'pending')}),
+      ('reason', TEXT))),
+    ('blockers', 'Core only: add, resolve, edit or list project blockers',
+     (('project', PROJECT), ('add', {}), ('resolve', {}), ('edit', {}), ('text', {}),
+      ('freeze-all', {'action': 'store_true'}), ('list', {'action': 'store_true'}), ('reason', {}))),
+    ('project-status', 'Core only: activate or stop the project',
+     (('project', PROJECT), ('to', {'required': True, 'choices': PROJECT_STATUS}), ('reason', TEXT))),
+)
+
+RUNNERS = {
+    'skills': lambda a: all_skills(),
+    'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
+                             blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
+    'migrate': lambda a: migrate_project(ROOT, a.project),
+    'set-goal': lambda a: set_goal(ROOT, a.project, a.path, a.reason),
+    'check-tool': lambda a: check_tool(ROOT, a.project, task_id=a.task, packet_id=a.packet,
+                                       server=a.server, operation=a.operation, scope=a.scope),
+    'tools': tools_command,
+    'tool-call': lambda a: record_tool_call(ROOT, a.project, task_id=a.task, packet_id=a.packet,
+                                            server=a.server, operation=a.operation, scope=a.scope,
+                                            token=a.token, count=a.count),
+    'host-event': lambda a: host_event(ROOT, a.project, a.task, a.job, a.status, a.reason),
+    'reflect': lambda a: record_reflection(ROOT, a.project, a.task, a.path, a.reason),
+    'review-reflection': lambda a: review_reflection(ROOT, a.project, a.path, a.task, a.reason,
+                                                     assessment=a.assessment),
+    'init': lambda a: initialize(ROOT, a.project, a.question),
+    'task': lambda a: create_task(ROOT, a.project, a.task, a.objective, activity=a.activity, skill=a.skill,
+                                  role=a.role, acceptance=a.acceptance, independent_review=a.independent_review,
+                                  role_prompt_text=a.role_prompt, resolves=a.resolves, tools=a.tool),
+    'handoff': lambda a: handoff(ROOT, a.project, a.task, a.summary, a.evidence, model=a.model,
+                                 outputs=a.outputs, session_mode=a.session, session_reason=a.session_reason,
+                                 resume_session_id=a.resume_session),
+    'assign': lambda a: assign(ROOT, a.project, a.task, a.summary, a.evidence, model=a.model,
+                               outputs=a.outputs, session_mode=a.session, session_reason=a.session_reason,
+                               resume_session_id=a.resume_session),
+    'submit': lambda a: submit(ROOT, a.project, a.task, a.reason, a.evidence, verdict=a.verdict),
+    'brief': lambda a: write_brief(ROOT, a.project, note=a.note),
+    'accept': lambda a: accept_assignment(ROOT, a.project, read_json(local_path(a.project, a.packet)),
+                                          read_json(local_path(a.project, a.receipt)),
+                                          packet_file=a.packet, receipt_file=a.receipt),
+    'task-status': lambda a: update_task(ROOT, a.project, a.task, a.status, a.reason, a.evidence,
+                                         executor_stopped=a.executor_stopped, verdict=a.verdict),
+    'authorize': lambda a: authorize(ROOT, a.project, mode=a.mode, reason=a.reason, evidence=a.evidence,
+                                     services=a.services, operations=a.operations, scope=a.scope,
+                                     max_runs=a.max_runs, expires_at=a.expires_at),
+    'set-evaluation': lambda a: set_evaluation(ROOT, a.project, reason=a.reason,
+                                               **{measure: getattr(a, measure) for measure in MEASURES}),
+    'set-protocol': lambda a: set_protocol(ROOT, a.project, path=a.path, reason=a.reason),
+    'set-audit': lambda a: set_audit(ROOT, a.project, kind=a.kind, path=a.path, status=a.status,
+                                     reason=a.reason),
+    'blockers': lambda a: (list_blockers(ROOT, a.project) if a.list else
+                           update_blockers(ROOT, a.project, add=a.add, resolve=a.resolve, reason=a.reason,
+                                           edit=a.edit, text=a.text, freeze_all=a.freeze_all)),
+    'project-status': lambda a: set_project_status(ROOT, a.project, status=a.to, reason=a.reason),
+    'phase': lambda a: transition_phase(ROOT, a.project, a.to, a.reason, a.evidence),
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    commands.add_parser('validate', help='Validate core contract, flat skills, extensions and provenance')
-    commands.add_parser('skills', help='List built-in and extension skills directly from disk')
-    status_parser = commands.add_parser('status', help='Print a read-only progress board; no state change')
-    status_parser.add_argument('--project', required=True, type=Path)
-    watch_parser = commands.add_parser('watch', help='Read-only active task and job supervision')
-    watch_parser.add_argument('--project', required=True, type=Path)
-    watch_parser.add_argument('--hours', type=float, default=2)
-    migrate = commands.add_parser('migrate', help='Explicit idle planning schema 5, 6 or 7 to 8 migration')
-    migrate.add_argument('--project', required=True, type=Path)
-    init = commands.add_parser('init', help='Create four planning documents')
-    init.add_argument('--project', required=True, type=Path)
-    init.add_argument('--question', required=True)
-    goal = commands.add_parser('set-goal', help='Core only: select a versioned planning dossier')
-    for option in ('project', 'path', 'reason'):
-        goal.add_argument('--' + option, required=True)
-    tool = commands.add_parser('check-tool', help='Read-only check before host tool invocation')
-    for option in ('project', 'task', 'packet', 'server', 'operation', 'scope'):
-        tool.add_argument('--' + option, required=True)
-    tools = commands.add_parser('tools', help='Ingest a host tool catalog, confirm ambiguous semantics, or view registries')
-    tools.add_argument('--project', required=True, type=Path)
-    tools.add_argument('--server')
-    tools.add_argument('--catalog')
-    tools.add_argument('--confirm', action='store_true')
-    tools.add_argument('--operation')
-    tools.add_argument('--semantics', choices=('read', 'write'))
-    tools.add_argument('--reason')
-    call = commands.add_parser('tool-call', help='Core only: record an external call against its preflight token')
-    for option in ('project', 'task', 'packet', 'server', 'operation', 'scope', 'token'):
-        call.add_argument('--' + option, required=True)
-    event = commands.add_parser('host-event', help='Core only: record host job state')
-    for option in ('project', 'task', 'job', 'status', 'reason'):
-        event.add_argument('--' + option, required=True)
-    reflect = commands.add_parser('reflect', help='Core only: bind experiment reflection')
-    for option in ('project', 'task', 'path', 'reason'):
-        reflect.add_argument('--' + option, required=True)
-    review_reflect = commands.add_parser('review-reflection', help='Core only: review follow-up result')
-    for option in ('project', 'path', 'task', 'reason'):
-        review_reflect.add_argument('--' + option, required=True)
-    review_reflect.add_argument('--assessment', required=True,
-                                choices=('supported', 'contradicted', 'inconclusive'))
-    task = commands.add_parser('task', help='Core only: register a stable task without changing phase')
-    for name in ('task', 'objective', 'activity', 'skill', 'role', 'acceptance'):
-        task.add_argument('--' + name, required=True)
-    task.add_argument('--project', required=True, type=Path)
-    task.add_argument('--independent-review', action='store_true')
-    task.add_argument('--resolves', nargs='+', default=[], help='Open blocker IDs this task is created to resolve')
-    task.add_argument('--tool', action='append', default=[],
-                      help='Assigned external channel as server:operation; repeatable')
-    task.add_argument('--role-prompt', help='Explicit standpoint prompt; required for role ids without a canonical template')
-    transfer = commands.add_parser('handoff', help='Print one task assignment; no state change or dispatch')
-    transfer.add_argument('--project', required=True, type=Path)
-    for name in ('task', 'summary', 'model'):
-        transfer.add_argument('--' + name, required=True)
-    transfer.add_argument('--evidence', nargs='+', required=True)
-    transfer.add_argument('--outputs', nargs='+', required=True)
-    transfer.add_argument('--session', choices=('fresh', 'reuse', 'current'), default='fresh')
-    transfer.add_argument('--session-reason')
-    transfer.add_argument('--resume-session')
-    accept = commands.add_parser('accept', help='Core only: validate and record an actual executor receipt')
-    accept.add_argument('--project', required=True, type=Path)
-    accept.add_argument('--packet', required=True, help='Project-relative saved packet path')
-    accept.add_argument('--receipt', required=True, help='Project-relative saved receipt path')
-    update = commands.add_parser('task-status', help='Core only: record submission, acceptance, blocking or cancellation')
-    update.add_argument('--project', required=True, type=Path)
-    for name in ('task', 'status', 'reason'):
-        update.add_argument('--' + name, required=True)
-    update.add_argument('--evidence', nargs='*', default=[])
-    update.add_argument('--executor-stopped', action='store_true')
-    update.add_argument('--verdict', choices=COMPLETION_VERDICTS,
-                        help='Structured acceptance verdict recorded with a completion')
-    phase = commands.add_parser('phase', help='Core only: explicitly change project phase')
-    phase.add_argument('--project', required=True, type=Path)
-    phase.add_argument('--to', required=True)
-    phase.add_argument('--reason', required=True)
-    phase.add_argument('--evidence', nargs='+', required=True)
-    grant = commands.add_parser('authorize', help='Core only: set research mode')
-    grant.add_argument('--project', required=True, type=Path)
-    grant.add_argument('--mode', required=True, choices=('planning', 'research'))
-    grant.add_argument('--reason', required=True)
-    grant.add_argument('--evidence', nargs='*', default=[])
-    grant.add_argument('--services', nargs='+', default=[])
-    grant.add_argument('--operations', nargs='+', default=[])
-    grant.add_argument('--scope')
-    grant.add_argument('--max-runs', type=int)
-    grant.add_argument('--expires-at')
-    evaluation = commands.add_parser('set-evaluation', help='Core only: record the four evaluation fields')
-    evaluation.add_argument('--project', required=True, type=Path)
-    for name in MEASURES:
-        evaluation.add_argument('--' + name.replace('_', '-'), required=True)
-    evaluation.add_argument('--reason', required=True)
-    protocol = commands.add_parser('set-protocol', help='Core only: freeze the protocol under experiments/')
-    protocol.add_argument('--project', required=True, type=Path)
-    protocol.add_argument('--path', required=True)
-    protocol.add_argument('--reason', required=True)
-    audit = commands.add_parser('set-audit', help='Core only: record an evidence or final review audit')
-    audit.add_argument('--project', required=True, type=Path)
-    audit.add_argument('--kind', required=True, choices=('evidence', 'final'))
-    audit.add_argument('--path', required=True)
-    audit.add_argument('--status', required=True, choices=('verified', 'unverified', 'passed', 'pending'))
-    audit.add_argument('--reason', required=True)
-    blockers = commands.add_parser('blockers', help='Core only: add, resolve, edit or list project blockers')
-    blockers.add_argument('--project', required=True, type=Path)
-    blockers.add_argument('--add')
-    blockers.add_argument('--resolve')
-    blockers.add_argument('--edit')
-    blockers.add_argument('--text')
-    blockers.add_argument('--freeze-all', action='store_true')
-    blockers.add_argument('--list', action='store_true')
-    blockers.add_argument('--reason')
-    project_status = commands.add_parser('project-status', help='Core only: activate or stop the project')
-    project_status.add_argument('--project', required=True, type=Path)
-    project_status.add_argument('--to', required=True, choices=PROJECT_STATUS)
-    project_status.add_argument('--reason', required=True)
+    for name, help_text, options in CLI:
+        sub = commands.add_parser(name, help=help_text)
+        for option, kwargs in options:
+            sub.add_argument('--' + option, **kwargs)
     args = parser.parse_args(argv)
     try:
         if args.command == 'validate':
@@ -1561,83 +1765,10 @@ def main(argv=None):
                 if note.startswith(ADVISORY_PREFIX):
                     print(note)
             return 0
-        if args.command == 'skills':
-            result = discover_skills(ROOT)
-            for name, entry in discover_extensions(ROOT)[0].items():
-                result.setdefault(name, entry)
-        elif args.command == 'status':
+        if args.command == 'status':
             print(status(ROOT, args.project))
             return 0
-        elif args.command == 'watch':
-            result = watch(ROOT, args.project, hours=args.hours)
-        elif args.command == 'migrate':
-            result = migrate_project(ROOT, args.project)
-        elif args.command == 'set-goal':
-            result = set_goal(ROOT, args.project, args.path, args.reason)
-        elif args.command == 'check-tool':
-            result = check_tool(ROOT, args.project, task_id=args.task, packet_id=args.packet,
-                                server=args.server, operation=args.operation, scope=args.scope)
-        elif args.command == 'tool-call':
-            result = record_tool_call(ROOT, args.project, task_id=args.task, packet_id=args.packet,
-                                      server=args.server, operation=args.operation, scope=args.scope,
-                                      token=args.token)
-        elif args.command == 'tools':
-            if args.catalog is not None:
-                result = ingest_catalog(ROOT, args.project, args.server, args.catalog,
-                                        args.reason or 'Host exported the server tool catalog')
-            elif args.confirm:
-                result = confirm_semantics(ROOT, args.project, args.server, args.operation,
-                                           args.semantics, args.reason)
-            else:
-                result = view_registry(ROOT, args.project, args.server)
-        elif args.command == 'host-event':
-            result = host_event(ROOT, args.project, args.task, args.job, args.status, args.reason)
-        elif args.command == 'reflect':
-            result = record_reflection(ROOT, args.project, args.task, args.path, args.reason)
-        elif args.command == 'review-reflection':
-            result = review_reflection(ROOT, args.project, args.path, args.task, args.reason,
-                                       assessment=args.assessment)
-        elif args.command == 'init':
-            result = initialize(ROOT, args.project, args.question)
-        elif args.command == 'task':
-            result = create_task(ROOT, args.project, args.task, args.objective, activity=args.activity,
-                                 skill=args.skill, role=args.role, acceptance=args.acceptance,
-                                 independent_review=args.independent_review,
-                                 role_prompt_text=args.role_prompt, resolves=args.resolves, tools=args.tool)
-        elif args.command == 'handoff':
-            result = handoff(ROOT, args.project, args.task, args.summary, args.evidence,
-                             model=args.model, outputs=args.outputs, session_mode=args.session,
-                             session_reason=args.session_reason, resume_session_id=args.resume_session)
-        elif args.command == 'accept':
-            result = accept_assignment(ROOT, args.project, read_json(local_path(args.project, args.packet)),
-                                       read_json(local_path(args.project, args.receipt)),
-                                       packet_file=args.packet, receipt_file=args.receipt)
-        elif args.command == 'task-status':
-            result = update_task(ROOT, args.project, args.task, args.status, args.reason, args.evidence,
-                                 executor_stopped=args.executor_stopped, verdict=args.verdict)
-        elif args.command == 'authorize':
-            result = authorize(ROOT, args.project, mode=args.mode, reason=args.reason, evidence=args.evidence,
-                               services=args.services, operations=args.operations, scope=args.scope,
-                               max_runs=args.max_runs, expires_at=args.expires_at)
-        elif args.command == 'set-evaluation':
-            result = set_evaluation(ROOT, args.project, **{field: getattr(args, field) for field in MEASURES},
-                                    reason=args.reason)
-        elif args.command == 'set-protocol':
-            result = set_protocol(ROOT, args.project, path=args.path, reason=args.reason)
-        elif args.command == 'set-audit':
-            result = set_audit(ROOT, args.project, kind=args.kind, path=args.path, status=args.status,
-                               reason=args.reason)
-        elif args.command == 'blockers':
-            if args.list:
-                result = list_blockers(ROOT, args.project)
-            else:
-                result = update_blockers(ROOT, args.project, add=args.add, resolve=args.resolve,
-                                         reason=args.reason, edit=args.edit, text=args.text,
-                                         freeze_all=args.freeze_all)
-        elif args.command == 'project-status':
-            result = set_project_status(ROOT, args.project, status=args.to, reason=args.reason)
-        else:
-            result = transition_phase(ROOT, args.project, args.to, args.reason, args.evidence)
+        result = RUNNERS[args.command](args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:

@@ -137,6 +137,25 @@ class ReviewGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.handoff(evidence=[audit['path'], new['path']])
 
+    def test_scratch_artifacts_cannot_support_verified_claims(self):
+        audit = self.audited()
+        scratch = self.artifact('scratch/quick-probe.md', 'Exploratory probe')
+        path = self.project / audit['path']
+        self.mutate(path, lambda x: x['subjects'].append(scratch))
+        self.mutate(self.project / 'research-state.json',
+                    lambda x: x['evidence_review'].update(sha256=self.tool.digest(path)))
+        with self.assertRaisesRegex(ValueError, 'Scratch'):
+            self.handoff(evidence=[audit['path']])
+
+    def test_scratch_outputs_are_valid_and_reusable_as_evidence(self):
+        probe = self.artifact('scratch/quick-probe.md', 'Exploratory probe')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Free exploration', ['research-brief.md'],
+                                   model='current', outputs=['scratch/notes-v1.md'])
+        self.assertEqual(packet['allowed_outputs'], ['scratch/notes-v1.md'])
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Formalize the probe', [probe['path']],
+                                   model='current', outputs=['hypotheses/formal-v1.md'])
+        self.assertEqual([record['path'] for record in packet['evidence']], [probe['path']])
+
     def test_blockers_remain_blocking(self):
         audit = self.audited()
         self.tool.update_blockers(ROOT, self.project, add='Baseline not reproduced', reason='Blocking write work')

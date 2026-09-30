@@ -64,6 +64,7 @@ Keep the framework source separate from each research project's runtime director
 ├── paper/                     # Versioned manuscripts
 ├── reports/                   # Figures, talks and planning deliverables
 ├── reviews/                   # Version-bound audits and review reports
+├── scratch/                   # Exploratory notes; never evidence for verified claims
 └── handoffs/                  # Core: packets and receipts
 ```
 
@@ -196,4 +197,4 @@ Request the model per assignment by matching capability to the task's judgment d
 
 Roles describe responsibilities; skills provide methods; models and sessions are execution choices. None is a substitute for a task or phase. Specialists only return work, checks and blockers. Only the core accepts outputs, updates global findings, decides a retry, and judges phase exit criteria.
 
-The optional helper now performs explicit core state operations (`task`, `authorize`, `set-evaluation`, `set-protocol`, `set-audit`, `blockers`, `project-status`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` and the progress board `status` remain read-only. No command creates a model session, starts experiments, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).
+The optional helper now performs explicit core state operations (`task`, `assign`, `submit`, `brief`, `authorize`, `set-evaluation`, `set-protocol`, `set-audit`, `blockers`, `project-status`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state; `assign` composes handoff with a saved packet and, for current-session work, a receipt computed from the files on disk, `submit` composes submission with core acceptance, and `brief` mechanically rewrites the current brief block in `research-log.md` while the core supplies the narrative note. `handoff` and the progress board `status` remain read-only. No command creates a model session, starts experiments, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).

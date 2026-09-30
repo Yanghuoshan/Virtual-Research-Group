@@ -105,6 +105,92 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn('from_phase', first)
         self.assertEqual(self.state()['tasks']['t1']['status'], 'planned')
 
+    def test_assign_saves_the_packet_and_defers_to_the_host_for_isolated_sessions(self):
+        self.create()
+        result = self.tool.assign(ROOT, self.project, 't1', 'Work from the current evidence',
+                                  ['research-brief.md'], model='current', outputs=['hypotheses/t1-v1.md'])
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'planned')
+        self.assertTrue((self.project / result['packet_file']).is_file())
+        self.assertNotIn('receipt_file', result)
+        self.assertIn('accept --packet', result['next'])
+
+    def test_assign_accepts_current_session_work_from_computed_checks(self):
+        self.create()
+        result = self.tool.assign(ROOT, self.project, 't1', 'Small bounded analysis',
+                                  ['research-brief.md'], model='current', outputs=['hypotheses/t1-v1.md'],
+                                  session_mode='current', session_reason='Small task without independence')
+        self.assertEqual(result['task_status'], 'running')
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'running')
+        receipt = json.loads((self.project / result['receipt_file']).read_text())
+        self.assertTrue(all(receipt[flag] for flag in ('state_hash_checked', 'core_hash_checked',
+                                                       'skill_hash_checked', 'evidence_hashes_checked')))
+        self.assertFalse(receipt['session_isolation_verified'])
+        packet = json.loads((self.project / result['packet_file']).read_text())
+        self.assertEqual(receipt['packet_sha256'], self.tool.packet_digest(packet))
+        self.output('hypotheses/t1-v1.md')
+        self.update('submitted', executor_stopped=True, evidence=['hypotheses/t1-v1.md'])
+        self.update('completed')
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'completed')
+
+    def test_assign_current_session_cannot_share_a_running_task(self):
+        self.create('t1')
+        self.create('t2')
+        self.tool.assign(ROOT, self.project, 't1', 'First assignment', ['research-brief.md'],
+                         model='current', outputs=['hypotheses/t1-v1.md'],
+                         session_mode='current', session_reason='First small task')
+        with self.assertRaisesRegex(ValueError, 'running task'):
+            self.tool.assign(ROOT, self.project, 't2', 'Second assignment', ['research-brief.md'],
+                             model='current', outputs=['hypotheses/t2-v1.md'],
+                             session_mode='current', session_reason='Second small task')
+
+    def test_cli_assign_round_trip(self):
+        self.create()
+        args = ['assign', '--project', str(self.project), '--task', 't1', '--summary', 'Small bounded analysis',
+                '--evidence', 'research-brief.md', '--model', 'current', '--outputs', 'hypotheses/t1-v1.md',
+                '--session', 'current', '--session-reason', 'Small task without independence']
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(self.tool.main(args), 0)
+        self.assertEqual(json.loads(output.getvalue())['task_status'], 'running')
+
+    def test_submit_records_submission_and_completion_in_one_command(self):
+        self.create()
+        self.tool.assign(ROOT, self.project, 't1', 'Small bounded analysis', ['research-brief.md'],
+                         model='current', outputs=['hypotheses/t1-v1.md'],
+                         session_mode='current', session_reason='Small task without independence')
+        self.output('hypotheses/t1-v1.md')
+        result = self.tool.submit(ROOT, self.project, 't1', 'Core verified the artifact',
+                                  ['hypotheses/t1-v1.md'], verdict='met')
+        self.assertEqual(result['status'], 'completed')
+        state = self.state()
+        self.assertEqual(state['tasks']['t1']['status'], 'completed')
+        actions = [event['action'] for event in state['history']]
+        self.assertIn('task-submitted', actions)
+        self.assertIn('task-completed', actions)
+
+    def test_submit_failure_leaves_the_task_submitted(self):
+        self.create()
+        self.tool.assign(ROOT, self.project, 't1', 'Small bounded analysis', ['research-brief.md'],
+                         model='current', outputs=['hypotheses/t1-v1.md'],
+                         session_mode='current', session_reason='Small task without independence')
+        self.output('hypotheses/t1-v1.md')
+        self.tool.update_blockers(ROOT, self.project, add='Emergency stop', reason='Freeze completion',
+                                  freeze_all=True)
+        with self.assertRaisesRegex(ValueError, 'frozen'):
+            self.tool.submit(ROOT, self.project, 't1', 'Core verified the artifact', ['hypotheses/t1-v1.md'])
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'submitted')
+
+    def test_cli_submit_round_trip(self):
+        self.create()
+        self.tool.assign(ROOT, self.project, 't1', 'Small bounded analysis', ['research-brief.md'],
+                         model='current', outputs=['hypotheses/t1-v1.md'],
+                         session_mode='current', session_reason='Small task without independence')
+        self.output('hypotheses/t1-v1.md')
+        args = ['submit', '--project', str(self.project), '--task', 't1',
+                '--reason', 'Core verified the artifact', '--evidence', 'hypotheses/t1-v1.md']
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.tool.main(args), 0)
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'completed')
+
     def test_migration_rejects_inconsistent_running_legacy_state(self):
         self.create()
         legacy = self.state()
