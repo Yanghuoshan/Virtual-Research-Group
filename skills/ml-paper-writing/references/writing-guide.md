@@ -382,7 +382,7 @@ Figures should tell a coherent story even if the reader skips the text. Many rea
 1. **Figure 1 is crucial**: Often the first thing readers examine after abstract
 2. **Self-contained captions**: Reader should understand figure without main text
 3. **No title inside figure**: The caption serves this function (ICML/NeurIPS rule)
-4. **Vector graphics**: PDF/EPS for plots, PNG (600 DPI) only for photographs
+4. **Vector graphics**: PDF/EPS for plots; raster previews (300 DPI minimum) only when the assignment requests them
 
 ### Accessibility Requirements
 
@@ -396,14 +396,7 @@ Figures should tell a coherent story even if the reader skips the text. Many rea
 
 ### Tools
 
-```python
-# SciencePlots: Publication-ready styles
-import matplotlib.pyplot as plt
-plt.style.use(['science', 'ieee'])
-
-# Or for Nature-style
-plt.style.use(['science', 'nature'])
-```
+Producing publication-quality figures from measured data is a separate skill (`academic-plotting`) that the core assigns; this writing task consumes already-produced figures. Styling guidance for authors reviewing figure drafts is in the plotting skill's style reference.
 
 ---
 
@@ -442,7 +435,7 @@ plt.style.use(['science', 'nature'])
 |---------|----------|
 | Paper-by-paper Related Work | Organize methodologically |
 | Missing relevant citations | Reviewers authored papers—cite generously |
-| AI-generated citations | Always verify via APIs |
+| AI-generated citations | Mark unverified entries `[CITATION NEEDED]` and return the gap to the core |
 | Inconsistent citation format | Use BibLaTeX with consistent keys |
 
 ---
@@ -470,7 +463,7 @@ Before submitting, verify:
 - [ ] All figures have self-contained captions
 
 **Technical**:
-- [ ] All citations verified via API
+- [ ] All citations verified against the supplied bibliography; unresolved entries marked `[CITATION NEEDED]`
 - [ ] Error bars included with methodology
 - [ ] Compute resources documented
 - [ ] Code/data availability stated

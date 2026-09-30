@@ -273,7 +273,7 @@ def plot_leaderboard(models, scores, highlight_idx=-1, xlabel="Score",
     y_pos = np.arange(len(models))
     colors = [COLORS["gray"]] * len(models)
     if highlight_idx >= 0:
-        colors[highlight_idx] = COLORS["red"]
+        colors[highlight_idx] = COLORS["coral"]
 
     bars = ax.barh(y_pos, scores, color=colors, height=0.6)
     ax.set_yticks(y_pos)

@@ -5,7 +5,7 @@ description: Use when verified AI or machine-learning claims, results, and sourc
 
 # Evidence-Based ML Manuscript Writing
 
-Write the assigned manuscript artifact from supplied, verified material. Adapted from Orchestra Research; retained writing references and venue templates remain attributed resources, not authority to expand the task.
+Write the assigned manuscript artifact from supplied, verified material. Adapted from Orchestra Research; retained writing references remain attributed resources, not authority to expand the task.
 
 ## Inputs
 
@@ -33,7 +33,7 @@ Example: a mean improvement with overlapping intervals supports a bounded observ
 
 ## Boundary
 
-Return to the core with the draft or a blocked status. Do not dispatch other skills or agents, select models, run new experiments, schedule revisions, submit manuscripts, or modify global findings/state. A systems-specific task outside this contract is returned, not redirected by this skill.
+Return to the core with the draft or a blocked status. Do not dispatch other skills or agents, select models, run new experiments, schedule revisions, submit manuscripts, advance phases, or modify global findings/state. A systems-specific task outside this contract is returned, not redirected by this skill.
 
 ## Local References
 

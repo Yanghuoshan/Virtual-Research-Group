@@ -119,8 +119,9 @@ class SessionPolicyTests(unittest.TestCase):
         self.assertEqual(packet['session']['bootstrap_policy'], 'selected-skill-and-task-evidence-only')
         self.assertEqual(packet['session']['unavailable_policy'], 'return-to-core-no-silent-fallback')
         self.assertEqual(len(packet['evidence']), 1)
-        self.assertNotIn('conversation', packet)
-        self.assertNotIn('skills', packet)
+        self.assertEqual(set(packet['session']),
+                         {'mode', 'reason', 'resume_session_id', 'independent_review', 'status',
+                          'bootstrap_policy', 'unavailable_policy'})
 
     def test_receipt_distinguishes_requested_and_actual_session(self):
         receipt = json.loads((ROOT / 'templates/handoff-receipt.json').read_text())

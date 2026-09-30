@@ -87,31 +87,7 @@ Systems-specific source requirements are outside this writing reference. Report 
 
 ## Citation APIs & Tools
 
-### APIs
-
-| API | Documentation | Best For |
-|-----|---------------|----------|
-| **Semantic Scholar** | [Docs](https://api.semanticscholar.org/api-docs/) | ML/AI papers, citation graphs |
-| **CrossRef** | [Docs](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) | DOI lookup, BibTeX retrieval |
-| **arXiv** | [Docs](https://info.arxiv.org/help/api/basics.html) | Preprints, PDF access |
-| **OpenAlex** | [Docs](https://docs.openalex.org/) | Open alternative, bulk access |
-
-### Python Libraries
-
-| Library | Purpose |
-|---------|---------|
-| `semanticscholar` | Semantic Scholar wrapper |
-| `arxiv` | arXiv metadata access |
-| `habanero` | CrossRef client |
-
-These are source references, not installation instructions or authorized retrieval tools for a writing task. Return missing citation evidence to the core.
-
-### Citation Verification
-
-| Tool | URL | Purpose |
-|------|-----|---------|
-| Citely | [citely.ai](https://citely.ai/citation-checker) | Batch verification |
-| ReciteWorks | [reciteworks.com](https://reciteworks.com/) | In-text citation checking |
+Citation identity and claim verification belong to the `citation-verification` skill, which the core assigns separately; its local reference documents the historical API landscape and the core-assigned-channel policy. This writing task consumes the verified bibliography supplied with the assignment and returns unresolved references to the core.
 
 ---
 

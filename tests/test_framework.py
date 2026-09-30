@@ -5,12 +5,24 @@ import importlib.util
 import io
 import json
 from pathlib import Path
-import re
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/research.py'
+# Directories that are not maintained bundle text: user projects, tooling and git internals.
+SKIP_DIRECTORIES = ('projects', '.venv', '.git')
+# Unicode ranges for scripts that would violate the English-only rule. Written as
+# code points so this file stays pure ASCII and passes its own bundle check.
+NON_LATIN_RANGES = ((0x1100, 0x11FF), (0x2E80, 0x2FDF), (0x3040, 0x30FF), (0x3130, 0x318F),
+                    (0x3400, 0x9FFF), (0xA960, 0xA97F), (0xAC00, 0xD7AF), (0xF900, 0xFAFF),
+                    (0x0400, 0x052F), (0x0590, 0x05FF), (0x0600, 0x06FF),
+                    (0x0E00, 0x0E7F), (0x20000, 0x323AF))
+
+
+def non_latin_characters(text):
+    """Every distinct non-Latin script character in text, for the English-only check."""
+    return sorted({ch for ch in text if any(low <= ord(ch) <= high for low, high in NON_LATIN_RANGES)})
 
 
 def load_tool():
@@ -60,11 +72,10 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(self.tool.validate(ROOT), [])
 
     def test_bundle_text_is_english(self):
-        han = re.compile('[\u3400-\u9fff\uf900-\ufaff\U00020000-\U000323af]')
         violations = []
         for path in sorted(ROOT.rglob('*')):
             relative = path.relative_to(ROOT)
-            if not path.is_file() or relative.parts[0] in ('projects', '.venv') or '__pycache__' in relative.parts:
+            if not path.is_file() or relative.parts[0] in SKIP_DIRECTORIES or '__pycache__' in relative.parts:
                 continue
             if path.is_relative_to(Path(self.temp.name)):
                 continue
@@ -74,12 +85,21 @@ class FrameworkTests(unittest.TestCase):
                 continue
             if path.suffix == '.json':
                 text = json.dumps(json.loads(text), ensure_ascii=False)
-            if han.search(text):
-                violations.append(str(relative))
-        self.assertEqual(violations, [], 'Non-English CJK text remains in the bundle')
+            found = non_latin_characters(text)
+            if found:
+                violations.append(f'{relative}: {found[:5]}')
+        self.assertEqual(violations, [], 'Non-English script text remains in the bundle')
+
+    def test_english_check_covers_more_than_han_characters(self):
+        samples = {'kana': chr(0x30C7), 'hangul': chr(0xD55C), 'cyrillic': chr(0x041F),
+                   'arabic': chr(0x0645), 'thai': chr(0x0E01)}
+        for name, sample in samples.items():
+            with self.subTest(script=name):
+                self.assertTrue(non_latin_characters(sample), f'English check must flag {name} text')
+        self.assertEqual(non_latin_characters('Mechanism, evidence and falsifier'), [])
 
     def test_generated_scaffolding_is_english_and_preserves_user_input(self):
-        question = '\u56fe\u5206\u7c7b'
+        question = chr(0x56FE) + chr(0x5206) + chr(0x7C7B)
         self.tool.initialize(ROOT, self.project, question)
         brief = (self.project / 'research-brief.md').read_text()
         self.assertIn('# Research Scope', brief)
@@ -134,10 +154,9 @@ class FrameworkTests(unittest.TestCase):
 
     def prepare_execution(self):
         self.initialize()
-        register_task(self.tool, self.project, 'run', activity='experiment', skill='graph-evaluation', role='evaluator')
+        register_task(self.tool, self.project, 'run', activity='experiment', skill='graph-evaluation', role='experimenter')
         state = self.state()
         state.update(phase='design', mode='research')
-        state['authorization']['experiments'] = True
         state['evaluation'] = dict(primary_measure='macro F1', baseline='Matched graph baseline',
                                    validation_plan='Grouped train/validation/test split', uncertainty_plan='Five paired seeds')
         protocol = self.evidence('experiments/H1/protocol.md')
@@ -149,18 +168,11 @@ class FrameworkTests(unittest.TestCase):
         return self.handoff(task_id='run', evidence=[protocol],
                             outputs=['experiments/H1/runs/run-001/analysis.md'])
 
-    def test_execution_requires_authorization(self):
-        state, protocol = self.prepare_execution()
-        state['authorization']['experiments'] = False
-        self.save(state)
-        with self.assertRaises(ValueError):
-            self.execute_packet(protocol)
-
-    def test_planning_mode_blocks_execution(self):
+    def test_execution_requires_research_mode(self):
         state, protocol = self.prepare_execution()
         state['mode'] = 'planning'
         self.save(state)
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, 'research mode'):
             self.execute_packet(protocol)
 
     def test_execution_requires_all_evaluation_fields(self):
@@ -180,14 +192,14 @@ class FrameworkTests(unittest.TestCase):
 
     def test_valid_execution_packet(self):
         _, protocol = self.prepare_execution()
-        self.assertEqual(self.execute_packet(protocol)['target_role'], 'evaluator')
+        self.assertEqual(self.execute_packet(protocol)['target_role']['id'], 'experimenter')
 
-    def test_paused_or_busy_project_cannot_handoff(self):
+    def test_stopped_or_busy_project_cannot_handoff(self):
         self.initialize()
         original = self.state()
         busy = dict(original, active_task='t1')
         busy['tasks']['t1']['status'] = 'running'
-        for changed in (dict(original, status='paused'), busy):
+        for changed in (dict(original, status='stopped'), busy):
             self.save(changed)
             with self.assertRaises(ValueError):
                 self.handoff()

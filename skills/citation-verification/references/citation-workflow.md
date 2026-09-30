@@ -113,31 +113,37 @@ Confirm identity in the assigned channel; corroborate in a second source only wh
 import requests
 
 def verify_paper(doi=None, arxiv_id=None, title=None):
-    """Verify paper exists in multiple sources."""
+    """Verify paper identity in the retrieval channel assigned by the core.
+
+    Historical example: the core decides whether corroboration in a second
+    source is required; this function only reports which channels resolved
+    the identity, and the caller applies the assigned policy.
+    """
     sources_found = []
 
-    # Check Semantic Scholar
+    # Check the assigned channel (illustrated with Semantic Scholar)
     sch = SemanticScholar()
     if doi:
         paper = sch.get_paper(f"DOI:{doi}")
         if paper:
             sources_found.append("Semantic Scholar")
 
-    # Check CrossRef (via DOI)
-    if doi:
+    # Corroborate in a second channel ONLY when the core assigned one
+    # (illustrated with CrossRef via DOI)
+    if doi and second_channel_assigned:
         resp = requests.get(f"https://api.crossref.org/works/{doi}")
         if resp.status_code == 200:
             sources_found.append("CrossRef")
 
-    # Check arXiv
-    if arxiv_id:
+    # Corroborate on arXiv ONLY when the core assigned it
+    if arxiv_id and arxiv_channel_assigned:
         resp = requests.get(
             f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
         )
         if "<entry>" in resp.text:
             sources_found.append("arXiv")
 
-    return len(sources_found) >= 2, sources_found
+    return sources_found
 ```
 
 ### Step 3: Retrieve BibTeX
@@ -275,14 +281,20 @@ class CitationManager:
         return papers
 
     def verify(self, paper: Paper) -> Tuple[bool, List[str]]:
-        """Verify paper exists in multiple sources."""
+        """Report which assigned channels resolved the paper's identity.
+
+        Historical example: verification policy belongs to the core; this
+        method reports resolved channels and the caller applies the assigned
+        corroboration rule rather than a hardcoded source count.
+        """
         sources = []
 
         # Already found in Semantic Scholar via search
         sources.append("Semantic Scholar")
 
-        # Check CrossRef if DOI available
-        if paper.doi:
+        # Corroborate in additional channels ONLY when the core assigned them
+        # (CrossRef illustrated; the assigned policy governs)
+        if paper.doi and crossref_assigned:
             try:
                 resp = requests.get(
                     f"https://api.crossref.org/works/{paper.doi}",
@@ -293,8 +305,8 @@ class CitationManager:
             except:
                 pass
 
-        # Check arXiv if ID available
-        if paper.arxiv_id:
+        # Corroborate on arXiv ONLY when the core assigned it
+        if paper.arxiv_id and arxiv_channel_assigned:
             try:
                 resp = requests.get(
                     f"http://export.arxiv.org/api/query?id_list={paper.arxiv_id}",
@@ -305,7 +317,7 @@ class CitationManager:
             except:
                 pass
 
-        return len(sources) >= 2, sources
+        return bool(sources), sources
 
     def get_bibtex(self, paper: Paper) -> Optional[str]:
         """Get BibTeX for verified paper."""

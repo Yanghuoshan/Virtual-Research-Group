@@ -321,8 +321,10 @@ If applicable:
 
 ## Quick Reference: Page Limits
 
-| Conference | Main Content | References | Appendix |
-|------------|-------------|------------|----------|
+Historical reference points only. Page limits change every cycle; confirm against the current official author kit (see Template Locations below) before formatting:
+
+| Conference | Main Content (historical) | References | Appendix |
+|------------|---------------------------|------------|----------|
 | NeurIPS 2025 | 9 pages | Unlimited | Unlimited (checklist separate) |
 | ICML 2026 | 8 pages (+1 camera) | Unlimited | Unlimited |
 | ICLR 2026 | 9 pages (+1 camera) | Unlimited | Unlimited |

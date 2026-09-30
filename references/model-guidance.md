@@ -19,7 +19,7 @@ Choose by the judgment density of the task, not by its phase. A routine check in
 - Use the strongest available model where errors are expensive and hard to detect: synthesis, critique, evaluation design and conclusion writing.
 - Use cost-efficient models for bounded, mechanical, easily verified work: executing a frozen protocol, formatting, re-checking a fixed procedure.
 - Reuse a verified session with the same actual model for compatible follow-up tasks to avoid repeated bootstrap cost, when independence is not required.
-- Model choice does not change authorization or budget limits; it only affects how the permitted budget is used.
+- Model choice does not change research mode or gate decisions; it only affects how the assigned work is performed.
 
 ## Using the `current` Alias
 

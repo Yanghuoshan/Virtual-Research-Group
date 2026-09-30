@@ -15,7 +15,7 @@ The current formulation, fixed scientific or physical constraints, suspected con
 
 1. Separate hard constraints from conventions and hidden assumptions. Do not relax correctness, user permissions, or resource limits while exploring a representation.
 2. Express the problem in relational terms: entities, interactions, information available, objective, and cost. Remove incidental terminology without losing essential assumptions.
-3. Apply selected transformations from the [reformulation frameworks](references/reformulation-frameworks.md), matching them to the diagnosed block in [creative blocks](references/creative-blocks.md):
+3. Apply selected transformations from the [reformulation frameworks](references/reformulation-frameworks.md) (eight frameworks in total; the common ones are summarized below), matching them to the diagnosed block in [creative blocks](references/creative-blocks.md):
    - **Bisociation:** pair primitives from two supplied fields; retain only mappings that preserve mechanism, not similar words.
    - **Representation change:** move between graph, algebraic, probabilistic, or optimization formulations; state what becomes easier and what is lost.
    - **Constraint manipulation:** relax or tighten one scientific assumption and derive its consequences.
@@ -27,7 +27,7 @@ The current formulation, fixed scientific or physical constraints, suspected con
 
 ## Outputs
 
-A reformulation memo containing the original formulation, assumption map, alternative formulations, structural mappings, counterexamples, and questions requiring domain evidence.
+A reformulation memo at a new assigned path, containing the original formulation, assumption map, alternative formulations, structural mappings, counterexamples, and questions requiring domain evidence.
 
 ## Checks
 
@@ -45,4 +45,4 @@ These define procedures for this skill only. They do not authorize testing a ref
 
 ## Boundary
 
-Return to the core with the memo or blockers. Do not dispatch other skills or agents, select models, schedule validation, change the research question globally, or edit global state. Selecting or testing a new direction belongs to the core.
+Return to the core with the memo or blockers. Do not dispatch other skills or agents, select models, schedule validation, change the research question globally, advance phases, or edit global state. Selecting or testing a new direction belongs to the core.

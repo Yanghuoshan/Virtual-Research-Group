@@ -47,7 +47,7 @@ class ReviewGuardTests(unittest.TestCase):
 
     def test_valid_audit_allows_writing(self):
         audit = self.audited()
-        self.assertEqual(self.handoff(evidence=[audit['path']])['target_role'], 'writer')
+        self.assertEqual(self.handoff(evidence=[audit['path']])['target_role']['id'], 'writer')
 
     def test_changed_findings_cannot_reuse_old_audit(self):
         audit = self.audited()

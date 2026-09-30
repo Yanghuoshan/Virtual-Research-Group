@@ -9,12 +9,12 @@ One decision layer, one flat collection of specialist skills. Read this document
 
 ## Core Decision Authority
 
-Only the core selects hypotheses, phases, skills, roles, models, tool permissions, budgets, output paths, acceptance criteria, and the next task. Only the core initializes the project, freezes protocols, accepts results, updates global findings, and closes or pauses research.
+Only the core selects hypotheses, phases, skills, roles, models, tool permissions, output paths, acceptance criteria, and the next task. Only the core initializes the project, freezes protocols, accepts results, updates global findings, and closes or pauses research.
 
 - Maintain sole write ownership of `research-state.json`, `research-brief.md`, `research-log.md`, `findings.md`, and `handoffs/`. Specialists return proposed findings in task-local artifacts, never edit these global records.
 - Delegate one bounded task to one skill at a time. A role describes responsibility, not a fixed skill bundle. Choose a model explicitly; never derive skills from a domain profile or merge role presets.
 - Retain scientific judgment: decide whether evidence is relevant and sound, resolve contradictions, reject unsupported claims, and decide when to deepen, broaden, pivot, or stop.
-- Default to planning only. User authorization is required for experiments, external services, spending, recurring operation, and git commits. Stronger core ownership does not grant authority beyond the user's request.
+- Default to planning only. User authorization is required for experiments, external or paid access, recurring operation, and git commits; record that approval as the evidence cited when research mode is set and name the approved services in the task objective. Stronger core ownership does not grant authority beyond the user's request.
 - Specialist skills may choose technical steps within their assignment. They must not select another skill, spawn agents, change models, schedule future work, advance research phases, or acquire new permissions. Missing inputs return to the core as blockers.
 
 ## Phase, Task, and Session
@@ -69,6 +69,12 @@ Keep the framework source separate from each research project's runtime director
 
 Initialize only the four root documents; create other directories when a task needs them. Detailed organization rules, including hypothesis/run records, protocol freezing, evidence preservation and external artifact handling, are in [workspace](references/workspace.md).
 
+## Progress Visibility and Host Bridge
+
+The current brief at the top of `research-log.md` is the human's primary window. The core rewrites it, in its own words, at every core decision: local timestamp, status, phase, active task, open blockers, the decision just made and why, and the intended next step. The scripts never generate it; `research-state.json` stays authoritative, and a brief that contradicts the state is a defect the watchdog reports. A human reading only the brief must always know where the agent is, why, and how to intervene.
+
+How a host agent executes packets in isolated sessions, fills receipts, and how a scheduled read-only watchdog supervises the loop for stalls and drift, is defined in [host bridge](references/host-bridge.md). A one-page visual map of layers, phases, the evidence pipeline and the supervision loop is in [framework diagrams](references/architecture-diagrams.md).
+
 ## Direct Skill Selection
 
 1. Read the current question, state, accepted findings, last decision, and evidence.
@@ -81,15 +87,13 @@ Initialize only the four root documents; create other directories when a task ne
 
 External capabilities such as literature search, dataset lookup or experiment analysis offered through MCP servers are **channels assigned by the core**, never choices made by a specialist.
 
-- Declare the permitted servers and tool names in the task objective, or in the `allowed_tools` field of `authorized_tools` below when the project fixes them in advance.
-- Network or paid access requires `external_services` authorization from the user. Analysis that performs retrieval still needs it; the helper does not consume this flag, so the core must check it.
+- Declare the permitted servers and tool names in the task objective. The objective is the single channel through which tool limits reach the executor; there is no separate state field.
+- Network or paid access requires explicit user approval. Record it as the authorization evidence cited when the core sets research mode, and name the approved services in the task objective. The helper does not enforce approval, so the core must check it.
 - A skill may use only the assigned channel and tools. Installing servers, switching providers, purchasing access or broadening a search are blockers returned to the core.
 - Record provenance for external results: source URI, retrieval date, and a digest or identifier where available. Preserve raw responses under the assigned output path instead of only a summary.
 - An external response is metadata evidence, not a scientific endorsement. Treat coverage limits and version drift as recorded limitations, and re-verify before a conclusion depends on it.
 
-`allowed_tools` is a record of the project's permitted external channels. It is advisory: no helper currently validates tool names or blocks unlisted calls, so the boundary is enforced by the core's assignment and review, not by the script.
-
-Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
+Examples: source identity questions call for `citation-verification`; graph split validity calls for `graph-evaluation`; running a frozen protocol in an assigned sandbox calls for `experiment-execution`; cleaning run outputs into checksummed analysis tables calls for `data-processing`; pre-specified statistical testing calls for `statistical-analysis`; quantitative figures call for `academic-plotting`; a systems manuscript calls for `systems-paper-writing`. Read the actual files before selection. These examples are not a mandatory pipeline or a second registry. A worked selection example with selection questions is in [capability selection](references/capability-selection.md); role and model choices are in [role guidance](references/role-guidance.md) and [model guidance](references/model-guidance.md).
 
 ## Research Phases
 
@@ -114,17 +118,32 @@ The table is the machine-readable contract; the helper parses it from this file.
 
 All assignments require existing nonempty input evidence, nonempty rationale and acceptance criteria, legal project-local output paths, active state, and no unresolved blockers. Do not permit specialists to overwrite inputs, existing outputs, global records, or the frozen protocol. Use new versioned outputs for revisions. Request new output targets, including directories; pre-existing directories or symlink targets are not an acceptable output scope.
 
-External tool use follows the [external tools policy](#external-tools-and-mcp-servers): declare permitted servers/tools, confirm `external_services` authorization when access leaves the project, and preserve raw responses with provenance.
+External tool use follows the [external tools policy](#external-tools-and-mcp-servers): declare permitted servers/tools in the task objective, confirm user approval when access leaves the project, and preserve raw responses with provenance.
 
 At task creation, the core explicitly classifies the actual work, never inferring permission from phase, role, skill name or output directory:
 
 - `analysis`: scoping, literature/citation checks, hypothesis generation, protocol design/audits, exploratory interpretation or clearly labeled outlines. No new experiment or presentation of unverified claims as established results is authorized.
-- `experiment`: performing an experiment, simulation, benchmark, or computational proof check. Requires `mode=research`, experiment authorization, all four evaluation fields and the matching frozen protocol, even if the project is still in scope or ideation.
+- `experiment`: performing an experiment, simulation, benchmark, or computational proof check. Requires `mode=research`, all four evaluation fields and the matching frozen protocol, even if the project is still in scope or ideation.
 - `conclusions`: presenting research claims as verified, in writing, figures or talks. Requires the verified evidence audit below, even outside the write phase. Split combined experimental execution and verified-claim communication into separate tasks.
 
-These three activity values are safety declarations, not new phases or a skill router. The helper cannot detect dishonest labeling; the core must inspect the objective, permitted tools and actual operations. Analysis that needs external retrieval still requires service authorization. Theoretical validation uses proof obligations and independent checking rather than assuming training or GPUs.
+These three activity values are safety declarations, not new phases or a skill router. The helper cannot detect dishonest labeling; the core must inspect the objective, permitted tools and actual operations. Analysis that needs external retrieval still requires user approval for that access. Theoretical validation uses proof obligations and independent checking rather than assuming training or GPUs.
 
 Writing research conclusions requires a verified audit JSON binding `findings.md`, the current protocol, and raw evidence under `experiments/` or `data/`. **Project completion** (the separate `phase → complete` decision) additionally requires a passed final review binding current findings and the manuscript; accepting an individual task's output never triggers that check. Audit `subjects` are path/hash pairs. Changed subjects invalidate approval. Specialists may produce audit proposals; only the core sets approval state after checking their coverage and reasoning. Hash checks cannot prove truth or detect omitted dependencies.
+
+## Core State Controls
+
+`research-state.json` holds every gate and switch that a specialist may not set: `mode`, `evaluation`, `protocol`, `evidence_review`, `review`, `blockers` and the project `status`. The core changes them only through explicit helper commands, each of which records a revision and a history entry like any other core decision:
+
+| Field | Command | Gate it opens |
+|---|---|---|
+| `mode` | `authorize` | The single experiment gate; granting research mode requires a reason and cited authorization evidence |
+| `evaluation` (four fields) | `set-evaluation` | Prerequisite for assigning an `experiment` task |
+| `protocol` | `set-protocol` | Freezes a nonempty artifact under `experiments/` |
+| `evidence_review`, `review` | `set-audit` | `verified`/`passed` are checked against the audit file before they are recorded |
+| `blockers` | `blockers` | Open blockers stop task creation, assignment, completion and phase decisions until resolved |
+| `status` (`active`, `stopped`) | `project-status` | `stopped` closes new tasks, handoffs, phase and gate decisions; terminal until reactivated |
+
+Audits live under `reviews/` and follow `templates/evidence-audit.json`; a changed subject invalidates the recorded approval. Stopping preserves tasks, audits and evidence references and never completes, cancels or advances anything; it requires the active executor to have stopped first, and setting the status the project already has is refused as a non-decision. `stopped` is terminal until `project-status` reactivates it. Editing these fields by hand is not a recorded decision and breaks the audit trail. A receipt must carry `accepted_at` beside the four `*_checked` flags, and acceptance rechecks the packet, so an output the executor created before the receipt was recorded is rejected as an existing path.
 
 ## Session Lifecycle
 
@@ -142,7 +161,7 @@ Independent review is a task-level requirement and always uses fresh execution, 
 
 ### Minimal Context and Host Verification
 
-Do not forward the full conversation, all skill documents, or large logs. Provide task ID, objective, one selected skill, role, current evidence paths/hashes, uncertainties, output boundaries, permissions and acceptance criteria. Each packet has a new packet ID and current state fingerprint, including for the same task. Retained history never overrides the current assignment. Fingerprint the core contract without asking specialists to become another research manager.
+Do not forward the full conversation, all skill documents, or large logs. Provide task ID, objective, one selected skill, the role id with its standpoint prompt, current evidence paths/hashes, uncertainties, output boundaries, permissions and acceptance criteria. Each packet has a new packet ID and current state fingerprint, including for the same task. Retained history never overrides the current assignment. Fingerprint the core contract without asking specialists to become another research manager.
 
 Use the host's actual create/resume facility. A fork inheriting the entire conversation is not fresh isolation. Record actual model, session mode and host-provided session ID in the receipt; never substitute task or packet IDs. If the host provides no ID, use null with an explanation, and do not claim that such a session is resumable. Verify history isolation for fresh execution and mark it false for current-session execution. The helper checks receipt consistency and recorded reuse identity; it cannot verify that host assertions are true. Receipt binding rules, including the packet digest and reuse ordering, are in [assignment contracts](references/assignment-contracts.md).
 
@@ -156,10 +175,10 @@ When the core itself changes session, transfer the state revision, tasks, active
 
 ## Sequential Roles and Models
 
-Choose the role by asking which judgment the task requires: what to study, how to test, what happened, what it means, how to present it, or where it fails. A role supplies standpoint; the selected skill supplies method. A role carries no skill list, permissions or model, and does not persist across tasks. A role label such as `reviewer` does not prove independence; that requires the task-level `independent_review` flag. Defaults such as `strategist`, `methodologist`, `experimenter`, `analyst`, `writer`, `reviewer` and `critic`, with selection rules and worked examples, are in [role guidance](references/role-guidance.md).
+Choose the role by asking which judgment the task requires: what to study, how to test, what happened, what it means, how to present it, or where it fails. A role supplies standpoint; the selected skill supplies method. Each task records its role as `{id, prompt}`: a stable id for history, receipts and session-reuse checks, and the standpoint prompt the executor actually receives, taken from the canonical templates or adapted by the core at creation. A role carries no skill list, permissions or model, and does not persist across tasks. A role label such as `reviewer` does not prove independence; that requires the task-level `independent_review` flag. Defaults such as `strategist`, `methodologist`, `experimenter`, `analyst`, `writer`, `reviewer` and `critic`, with their prompt templates, selection rules and worked examples, are in [role guidance](references/role-guidance.md).
 
 Request the model per assignment by matching capability to the task's judgment density: spend the strongest model on synthesis, critique and conclusion writing, and use economical models for bounded mechanical work. `current` retains the host's current model and is not proof of the actual model; an unavailable model is reported to the core and requires a new packet and receipt, never silent substitution. Changing a model does not make a review independent. Detailed criteria are in [model guidance](references/model-guidance.md).
 
 Roles describe responsibilities; skills provide methods; models and sessions are execution choices. None is a substitute for a task or phase. Specialists only return work, checks and blockers. Only the core accepts outputs, updates global findings, decides a retry, and judges phase exit criteria.
 
-The optional helper now performs explicit core state operations (`task`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` remains read-only. No command creates a model session, starts experiments, enforces hard budgets, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).
+The optional helper now performs explicit core state operations (`task`, `authorize`, `set-evaluation`, `set-protocol`, `set-audit`, `blockers`, `project-status`, `accept`, `task-status`, `phase`), atomically recording each change and history in the project state. `handoff` remains read-only. No command creates a model session, starts experiments, or provides a filesystem sandbox. Use a single state writer; atomic replacement and revision checks are not distributed locking. Keep a narrative log of scientific decisions separately. See [operations](references/operations.md) and [extension guidance](references/domain-development.md).

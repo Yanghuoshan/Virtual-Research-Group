@@ -23,7 +23,7 @@ Task type, image/subject/source identifiers, annotation schema and version, spli
 
 ## Outputs
 
-A split and metric audit, task-specific defect list, and computed measurements only if valid predictions are supplied. Include source paths and unresolved assumptions.
+A split and metric audit, task-specific defect list, and computed measurements at new assigned paths, produced only if valid predictions are supplied. Include source paths and unresolved assumptions.
 
 ## Checks
 

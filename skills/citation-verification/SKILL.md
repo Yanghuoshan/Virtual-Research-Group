@@ -36,4 +36,4 @@ Example: a paper demonstrating a method on one benchmark does not support a cita
 
 ## Boundary
 
-Return to the core with verified entries and unresolved cases. Do not dispatch other skills or agents, choose models, install retrieval services, broaden the literature assignment, schedule follow-up searches, or modify global state. Use only retrieval explicitly permitted by the core's task.
+Return to the core with verified entries and unresolved cases. Do not dispatch other skills or agents, choose models, install retrieval services, broaden the literature assignment, schedule follow-up searches, advance phases, or modify global state. Use only retrieval explicitly permitted by the core's task.

@@ -22,7 +22,7 @@ Environment and simulator versions, task/initial-state distribution, action and 
 
 ## Outputs
 
-A rollout audit, per-condition summary, failure taxonomy, and reproducibility checklist. Compute metrics only from the provided logs and approved local tools.
+A rollout audit, per-condition summary, failure taxonomy, and reproducibility checklist at new assigned paths. Compute metrics only from the provided logs and approved local tools.
 
 ## Checks
 

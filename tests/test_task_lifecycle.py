@@ -37,9 +37,10 @@ class TaskLifecycleTests(unittest.TestCase):
                                  ['research-brief.md'], **options)
 
     def receipt(self, packet, session_id='host:s1', **changes):
-        result = dict(schema_version=3, packet_id=packet['packet_id'], task_id=packet['task_id'],
+        result = dict(schema_version=4, packet_id=packet['packet_id'], task_id=packet['task_id'],
                       source_revision=packet['source_revision'], accepted=True,
-                      actual_role=packet['target_role'], actual_model='provider/model-a',
+                      accepted_at='2026-01-01T00:00:00+00:00',
+                      actual_role=packet['target_role']['id'], actual_model='provider/model-a',
                       actual_session_mode=packet['session']['mode'], actual_session_id=session_id,
                       session_isolation_verified=packet['session']['mode'] == 'fresh',
                       session_notes='Host execution identity and history verified',
@@ -104,9 +105,9 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertNotIn('from_phase', first)
         self.assertEqual(self.state()['tasks']['t1']['status'], 'planned')
 
-    def test_experiments_require_authorization_even_in_scope(self):
+    def test_experiments_require_research_mode_even_in_scope(self):
         self.create(activity='experiment')
-        with self.assertRaisesRegex(ValueError, 'authorization'):
+        with self.assertRaisesRegex(ValueError, 'research mode'):
             self.packet()
 
     def test_conclusions_require_audit_even_in_ideation(self):
@@ -239,6 +240,7 @@ class TaskLifecycleTests(unittest.TestCase):
         self.create()
         packet = self.packet()
         for change in ({'task_id': 't2'}, {'packet_id': 'wrong'}, {'accepted': False},
+                       {'accepted_at': None}, {'accepted_at': '   '},
                        {'actual_session_mode': 'current'}, {'session_isolation_verified': False},
                        {'actual_role': 'other'}):
             with self.subTest(change=change), self.assertRaises(ValueError):
@@ -347,6 +349,226 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn('to_phase', json.loads(output.getvalue()))
         self.assertEqual(self.state()['phase'], 'scope')
+
+
+class GateCommandTests(unittest.TestCase):
+    """The gates that no specialist may set are opened only by explicit core commands."""
+
+    def setUp(self):
+        self.tool = load_tool()
+        self.temp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(self.temp.cleanup)
+        self.project = Path(self.temp.name) / 'project'
+        self.tool.initialize(ROOT, self.project, 'Investigate graph sensitivity')
+
+    def state(self):
+        return json.loads((self.project / 'research-state.json').read_text())
+
+    def write(self, name, text='Artifact body'):
+        path = self.project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return name
+
+    def digest(self, name):
+        return hashlib.sha256((self.project / name).read_bytes()).hexdigest()
+
+    def receipt(self, packet, session_id='host:gate'):
+        digest = hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
+                                           separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
+        return {'schema_version': 4, 'task_id': packet['task_id'], 'packet_id': packet['packet_id'],
+                'source_revision': packet['source_revision'], 'packet_sha256': digest, 'accepted': True,
+                'accepted_at': '2026-01-01T00:00:00+00:00', 'actual_role': packet['target_role']['id'],
+                'actual_model': 'provider/model-a', 'actual_session_mode': packet['session']['mode'],
+                'actual_session_id': session_id,
+                'session_isolation_verified': packet['session']['mode'] == 'fresh',
+                'session_notes': 'Host identity verified', 'state_hash_checked': True,
+                'core_hash_checked': True, 'skill_hash_checked': True, 'evidence_hashes_checked': True}
+
+    def create(self, task_id='run', **changes):
+        options = dict(activity='experiment', skill='graph-evaluation', role='experimenter',
+                       acceptance='Report protocol-bound measurements')
+        options.update(changes)
+        return self.tool.create_task(ROOT, self.project, task_id, 'Run the frozen protocol', **options)
+
+    def grant(self, reason='User authorized the bounded protocol', evidence=('research-brief.md',)):
+        return self.tool.authorize(ROOT, self.project, mode='research',
+                                   reason=reason, evidence=list(evidence))
+
+    def evaluate(self):
+        return self.tool.set_evaluation(ROOT, self.project, primary_measure='macro F1', baseline='Matched baseline',
+                                        validation_plan='Grouped split', uncertainty_plan='Five seeds',
+                                        reason='Core accepted the protocol')
+
+    def protocol(self):
+        path = self.write('experiments/H1/protocol.md', 'Frozen protocol')
+        self.tool.set_protocol(ROOT, self.project, path=path, reason='Core froze the protocol')
+        return path
+
+    def audit(self, subjects, name='reviews/evidence-audit.json', status='verified', kind='evidence'):
+        payload = {'schema_version': 1, 'reviewer': 'core', 'reviewed_at': '2026-01-01T00:00:00+00:00',
+                   'summary': 'Audit binds findings, protocol and raw evidence', 'subjects': []}
+        for subject in subjects:
+            payload['subjects'].append({'path': subject, 'sha256': self.digest(subject)})
+        target = self.project / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        return self.tool.set_audit(ROOT, self.project, kind=kind, path=name, status=status,
+                                   reason='Core recorded the audit')
+
+    def test_authorize_requires_evidence_when_granting(self):
+        for evidence in ([], ['missing.md']):
+            with self.subTest(evidence=evidence), self.assertRaises(ValueError):
+                self.grant(evidence=evidence)
+        self.grant()
+        state = self.state()
+        self.assertEqual(state['mode'], 'research')
+
+    def test_revoking_research_mode_needs_no_evidence(self):
+        self.grant()
+        state = self.tool.authorize(ROOT, self.project, mode='planning',
+                                    reason='Mode withdrawn', evidence=[])
+        self.assertEqual(state['mode'], 'planning')
+
+    def test_authorize_rejects_unknown_mode_and_blank_reason(self):
+        with self.assertRaises(ValueError):
+            self.tool.authorize(ROOT, self.project, mode='curious', reason='Not a real mode')
+        with self.assertRaises(ValueError):
+            self.grant(reason='   ')
+
+    def test_experiment_task_stays_closed_until_every_gate_is_set(self):
+        self.create()
+        with self.assertRaises(ValueError):
+            self.packet_for('experiments/H1/runs/run-001/analysis.md')
+        self.grant()
+        with self.assertRaises(ValueError):
+            self.packet_for('experiments/H1/runs/run-001/analysis.md')
+        self.evaluate()
+        with self.assertRaises(ValueError):
+            self.packet_for('experiments/H1/runs/run-001/analysis.md')
+        protocol = self.protocol()
+        packet = self.packet_for('experiments/H1/runs/run-001/analysis.md', evidence=[protocol])
+        self.assertEqual(packet['activity'], 'experiment')
+        self.assertEqual(packet['skill']['name'], 'graph-evaluation')
+
+    def packet_for(self, output, evidence=None):
+        return self.tool.handoff(ROOT, self.project, 'run', 'Execute the frozen protocol',
+                                 evidence or ['research-brief.md'], model='current', outputs=[output])
+
+    def test_set_protocol_rejects_paths_outside_experiments(self):
+        self.write('paper/protocol.md')
+        for path in ('paper/protocol.md', 'experiments/missing.md', '../outside.md'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.tool.set_protocol(ROOT, self.project, path=path, reason='Try to freeze')
+        self.protocol()
+        self.assertEqual(self.state()['protocol']['path'], 'experiments/H1/protocol.md')
+
+    def test_audit_verified_only_with_complete_binding(self):
+        self.grant()
+        self.evaluate()
+        protocol = self.protocol()
+        self.write('experiments/H1/runs/run-001/results.json', '{"macro_f1": 0.71}')
+        with self.assertRaises(ValueError):
+            self.audit(['findings.md'])
+        self.audit(['findings.md', protocol, 'experiments/H1/runs/run-001/results.json'])
+        review = self.state()['evidence_review']
+        self.assertEqual(review['status'], 'verified')
+        self.assertEqual(review['path'], 'reviews/evidence-audit.json')
+
+    def test_audit_outside_reviews_and_unknown_status_rejected(self):
+        self.write('data/audit.json', '{}')
+        with self.assertRaises(ValueError):
+            self.tool.set_audit(ROOT, self.project, kind='evidence', path='data/audit.json', status='verified',
+                                reason='Wrong directory')
+        with self.assertRaises(ValueError):
+            self.tool.set_audit(ROOT, self.project, kind='evidence', path='reviews/a.json', status='passed',
+                                reason='Wrong status for an evidence audit')
+
+    def test_blockers_stop_completion_and_phase_decisions(self):
+        self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
+                    acceptance='Falsifier per hypothesis')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Develop candidates', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write_output('hypotheses/t1.md')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Worker returned artifacts', ['hypotheses/t1.md'],
+                              executor_stopped=True)
+        # The task is now submitted, so only an open blocker can stop its acceptance.
+        self.tool.update_blockers(ROOT, self.project, add='Baseline unavailable', reason='Baseline missing')
+        self.assertEqual(self.state()['blockers'], ['Baseline unavailable'])
+        with self.assertRaisesRegex(ValueError, 'blockers'):
+            self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Try to accept', [])
+        with self.assertRaisesRegex(ValueError, 'blockers'):
+            self.tool.transition_phase(ROOT, self.project, 'ideation', 'Try to advance', ['research-brief.md'])
+        self.tool.update_blockers(ROOT, self.project, resolve='Baseline unavailable', reason='Baseline reproduced')
+        self.assertEqual(self.state()['blockers'], [])
+        with self.assertRaises(ValueError):
+            self.tool.update_blockers(ROOT, self.project, resolve='Unknown blocker', reason='Not recorded')
+        self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Core accepted the artifact', [])
+        self.tool.transition_phase(ROOT, self.project, 'ideation', 'Scope exit criteria checked', ['research-brief.md'])
+        self.assertEqual(self.state()['phase'], 'ideation')
+
+    def write_output(self, name, text='Artifact body'):
+        path = self.project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return name
+
+    def test_blockers_stop_new_tasks_and_stopped_closes_everything(self):
+        # Blockers absorb the old paused semantics: no new task may be created while blocked,
+        # but gate decisions and task bookkeeping continue on an active project.
+        self.tool.update_blockers(ROOT, self.project, add='Waiting for data', reason='Data request open')
+        with self.assertRaisesRegex(ValueError, 'blockers'):
+            self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
+                        acceptance='Falsifier per hypothesis')
+        self.tool.update_blockers(ROOT, self.project, resolve='Waiting for data', reason='Data received')
+        self.create('t1', activity='analysis', skill='brainstorming-research-ideas', role='strategist',
+                    acceptance='Falsifier per hypothesis')
+        # A stopped project closes new tasks, handoffs, phase decisions and gate commands alike.
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Study closed')
+        with self.assertRaises(ValueError):
+            self.create('t2', activity='analysis', skill='citation-verification', role='analyst', acceptance='Resolved')
+        with self.assertRaises(ValueError):
+            self.tool.handoff(ROOT, self.project, 't1', 'Work', ['research-brief.md'], model='current',
+                              outputs=['reports/a.md'])
+        with self.assertRaises(ValueError):
+            self.tool.transition_phase(ROOT, self.project, 'ideation', 'Try to advance', ['research-brief.md'])
+        with self.assertRaises(ValueError):
+            self.tool.update_blockers(ROOT, self.project, add='Another blocker', reason='Too late')
+        self.tool.set_project_status(ROOT, self.project, status='active', reason='Study reopened')
+        self.assertEqual(self.state()['status'], 'active')
+
+    def test_stopped_project_is_terminal_until_reactivated(self):
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Study closed')
+        with self.assertRaises(ValueError):
+            self.tool.authorize(ROOT, self.project, mode='research',
+                                reason='Too late', evidence=['research-brief.md'])
+        self.tool.set_project_status(ROOT, self.project, status='active', reason='Study reopened')
+        self.assertEqual(self.state()['status'], 'active')
+
+    def test_gate_commands_record_history_and_revision(self):
+        start = self.state()['revision']
+        self.grant()
+        self.evaluate()
+        self.protocol()
+        state = self.state()
+        self.assertEqual(state['revision'], start + 3)
+        actions = [event['action'] for event in state['history'][-3:]]
+        self.assertEqual(actions, ['mode-set', 'evaluation-set', 'protocol-frozen'])
+        for event in state['history'][-3:]:
+            self.assertIn('reason', event)
+
+    def test_cli_gate_commands(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.tool.main(['authorize', '--project', str(self.project), '--mode', 'research',
+                                             '--reason', 'User authorized the protocol',
+                                             '--evidence', 'research-brief.md']), 0)
+            self.assertEqual(self.tool.main(['set-evaluation', '--project', str(self.project),
+                                             '--primary-measure', 'macro F1', '--baseline', 'Matched baseline',
+                                             '--validation-plan', 'Grouped split', '--uncertainty-plan', 'Five seeds',
+                                             '--reason', 'Protocol accepted']), 0)
+        self.assertEqual(self.state()['mode'], 'research')
+        self.assertEqual(self.state()['evaluation']['primary_measure'], 'macro F1')
 
 
 if __name__ == '__main__':

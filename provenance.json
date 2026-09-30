@@ -8,74 +8,74 @@
     "academic-plotting/SKILL.md": {
       "path": "skills/academic-plotting/SKILL.md",
       "original_sha256": "6613653d8109dcae36596b37d7414d5ae394a18f81543365222286d04485fd83",
-      "sha256": "c1178901beffd9b2f8b3b66da4ceb7e05518df966952b06f0b27c55758587d7a",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "4f7eeb6e8b9b4656a7fd756fd0677ae8737d123b950994e9aeea9e610f478dae",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: boundary now names phase advancement as a forbidden action."
     },
     "academic-plotting/references/data-visualization.md": {
       "path": "skills/academic-plotting/references/data-visualization.md",
       "original_sha256": "680791b96eb8c3d6b065171f67c00ddfcd1b183629590a5df24182295fa2f013",
-      "sha256": "680791b96eb8c3d6b065171f67c00ddfcd1b183629590a5df24182295fa2f013",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "807f496531675a0d49b183384f53f7162558866369f878a1abcd571d5e52de7f",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "academic-plotting/references/diagram-generation.md": {
       "path": "skills/research-diagram-design/references/diagram-generation.md",
       "original_sha256": "9d5b1bb8a91b4cc04251cc89723784ebb3db176fa674632bc640c57d66a12f59",
-      "sha256": "94c50849698619c6f67a34c2655ef024ea3894e9e30405f4fcabe974f21d6785",
-      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained."
+      "sha256": "e32325eb00f2e1b6abfa1929d64e669a1920381843330bb3902e6577e4336d72",
+      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "academic-plotting/references/style-guide.md": {
       "path": "skills/academic-plotting/references/style-guide.md",
       "original_sha256": "4d470b7bc178583c9f2649c34600d0cda6b78d4243d449afc056b4c1034cef18",
-      "sha256": "4d470b7bc178583c9f2649c34600d0cda6b78d4243d449afc056b4c1034cef18",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "8a7ea78b591e8fe5dbb1f8c759c80d3fd63abacc9c5e193f95f970aa46f68b95",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "brainstorming-research-ideas/SKILL.md": {
       "path": "skills/brainstorming-research-ideas/SKILL.md",
       "original_sha256": "8422a1a6dc0a88d05f02b9fbe0f8c2ae06a77024856d18125efa13d19d855d46",
-      "sha256": "78bb72cd3bad25adbb1262118cfb6a9f191563ea597e2277af1ed1701252c2c5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: added skill-local methodological references and linked them from the entry."
+      "sha256": "cf4345d468e0b3f354727d7a11d8ba412e80feba4281dd237ec9e00518dd1fd2",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: added skill-local methodological references and linked them from the entry.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "creative-thinking-for-research/SKILL.md": {
       "path": "skills/creative-thinking-for-research/SKILL.md",
       "original_sha256": "ec111f9236d7f9d72c895cebbf0f534ac93f4249172607559ad4bf92aefc5310",
-      "sha256": "5301ff4122572c9c691edf39092cb5e806531e148fc59d0d19295e805e696718",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: added skill-local methodological references and linked them from the entry."
+      "sha256": "466a18b7a501e8f5a633b222b1c7d7a4e26ff38e6f8f7cccda35815e74abe1b5",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: added skill-local methodological references and linked them from the entry; outputs require new assigned paths and the boundary names phase advancement.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/SKILL.md": {
       "path": "skills/ml-paper-writing/SKILL.md",
       "original_sha256": "96733e6d758642d792ed15b7c08eb90548d4775099368cd72a8312127f2fe911",
-      "sha256": "2df28b89fccbcc42e9bb5fb319f5551e88243ae8770d2c03750b0e759cf1ffd8",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
+      "sha256": "387cd68c2eb30473c7dba9d87e08454b5e282ca9ab3806a251ad7a42dffcb2b7",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry; boundary now names phase advancement as a forbidden action.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/references/checklists.md": {
       "path": "skills/ml-paper-writing/references/checklists.md",
       "original_sha256": "32ae2ab79544ce6476c393e5a95bdc1851ed21da1c5339fa53fa4067e881c696",
-      "sha256": "ddf496edc2a5ec96d758be327cbe0673352015a984eb5898db57ec0260e7d2a0",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
+      "sha256": "2c07d6806eb158dd1e62cd10529d67c01b663b77bb14f5534ddc250f45e3d4b2",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/references/citation-workflow.md": {
       "path": "skills/citation-verification/references/citation-workflow.md",
       "original_sha256": "067a3b02daa8b4d0f3238e64d34f471bb359b96e75ddce8fa962aaf5e431e7ed",
-      "sha256": "0f752e354f542f8b139d11dc8664118c1038e6a8ca3e80a28430ba23af3bf277",
-      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained. Further local edit 2026-09-29: removed historical provider-selection and mandatory multi-source instructions; retrieval now defers to the core-assigned channel."
+      "sha256": "90ab3f4fc50588c4c0eecd4f769b54da18f63365f24cd1189eece92593cfc31a",
+      "note": "Adapted technical references to use only core-assigned tools; removed autonomous backend/service/dependency choices. Original source hash retained. Further local edit 2026-09-29: removed historical provider-selection and mandatory multi-source instructions; retrieval now defers to the core-assigned channel.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/references/reviewer-guidelines.md": {
       "path": "skills/ml-paper-writing/references/reviewer-guidelines.md",
       "original_sha256": "8430203306cb842f5768a4869a5dcfa3fc393b0a0f9539ac60668aaa1f2481ce",
-      "sha256": "70d499f06177b287aa30fe01ed995e83b7ec281e96bae13af3ecd3547912d501",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "b53b43079d1687aacb7177c62142aa60d10327e1d65dbf3b43e863e6a485023c",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: removed table-of-contents entries for chapters this file no longer contains and stated the ML-only scope.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/references/sources.md": {
       "path": "skills/ml-paper-writing/references/sources.md",
       "original_sha256": "0f02129a3507af742d162cacd2d6e52a14c6bff03f339f6c9c91e5ccfcf0ac27",
-      "sha256": "013976f1661fa7b39f9f46fad63df491cd38cea18c7a8a3275eb147fb771d0a6",
-      "note": "Bound template/source guidance to core-assigned tools and scope; removed cross-skill redirection, autonomous setup, watchers and default uploads. Original source hash retained."
+      "sha256": "21decb1793d498298300e8b35427801df10712bf673a3940a2a4d4d9406d01e7",
+      "note": "Bound template/source guidance to core-assigned tools and scope; removed cross-skill redirection, autonomous setup, watchers and default uploads. Original source hash retained.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "ml-paper-writing/references/writing-guide.md": {
       "path": "skills/ml-paper-writing/references/writing-guide.md",
       "original_sha256": "ed5ff6960a04bd385b6a28577a26428056e35920001b1916240a4eb563f54709",
-      "sha256": "ed5ff6960a04bd385b6a28577a26428056e35920001b1916240a4eb563f54709",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "3103782fc19f86125786df74db03f108e09cf2e206e16efe75d4ff4eb6a3a175",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "presenting-conference-talks/SKILL.md": {
       "path": "skills/presenting-conference-talks/SKILL.md",
@@ -86,14 +86,14 @@
     "systems-paper-writing/SKILL.md": {
       "path": "skills/systems-paper-writing/SKILL.md",
       "original_sha256": "ee31b50b25192efcfcbe3252d7e15d88ec27bbd94817640b0357090f94c0e297",
-      "sha256": "abd1b91f2141e45f1287c58bda959dba95e34a200111c92d02b68572fbe7a98a",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry."
+      "sha256": "0bd2bea5ba5fdb2c69bfcf1be6f740231d9e876936dc8fc1129f7e2c479732a2",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration. Further local edit 2026-09-29: bundled venue templates removed and official sources linked from the entry; boundary now names phase advancement as a forbidden action."
     },
     "systems-paper-writing/references/checklist.md": {
       "path": "skills/systems-paper-writing/references/checklist.md",
       "original_sha256": "7ccb78079fb8e9a0bd9f6f024b847338e88f4974536eae2287f2ceb9adadd658",
-      "sha256": "7ccb78079fb8e9a0bd9f6f024b847338e88f4974536eae2287f2ceb9adadd658",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "6d0349152c3aa58f0a4fd50d21430dfa9e8ad68c656e8880ccbf26ad4d910698",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     },
     "systems-paper-writing/references/reviewer-guidelines.md": {
       "path": "skills/systems-paper-writing/references/reviewer-guidelines.md",
@@ -116,8 +116,8 @@
     "systems-paper-writing/references/writing-patterns.md": {
       "path": "skills/systems-paper-writing/references/writing-patterns.md",
       "original_sha256": "593f80a581fbeb1e9fc07360ee94940a111a3db4a023d3e27bf6df300d7216d5",
-      "sha256": "593f80a581fbeb1e9fc07360ee94940a111a3db4a023d3e27bf6df300d7216d5",
-      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration."
+      "sha256": "d5ae0d17173f1d222baac912a30380c82ab430ac3603a9040aa7ae6126f38f34",
+      "note": "Retained source material with recorded local adaptation when hashes differ; specialist entries were rewritten to remove external orchestration.Further local edit 2026-09-30: internal conflict fixes (scope boundary, stale template/verification claims, count mismatches); original source hash retained."
     }
   }
 }

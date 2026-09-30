@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "task_id": null,
   "packet_id": null,
   "packet_sha256": null,
@@ -17,5 +17,5 @@
   "skill_hash_checked": false,
   "evidence_hashes_checked": false,
   "unresolved_questions": [],
-  "note": "Execution acceptance is not task completion or phase advancement. Match task_id and packet_id, and record the actual host session ID rather than a fabricated UUID. A fresh ID alone does not prove isolated history; document host checks in session_notes. Current mode must not claim isolation. Only the core validates and records this receipt."
+  "note": "Execution acceptance is not task completion or phase advancement. Match task_id and packet_id, and record the actual host session ID rather than a fabricated UUID. actual_role is the role id from the packet's target_role; the standpoint prompt itself is bound transitively through packet_sha256. A fresh ID alone does not prove isolated history; document host checks in session_notes. Current mode must not claim isolation. accepted_at is required and must not stay null, and all four *_checked flags must be true; the helper rejects an incomplete receipt. Only the core validates and records this receipt."
 }

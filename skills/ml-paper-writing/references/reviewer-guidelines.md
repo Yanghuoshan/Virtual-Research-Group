@@ -2,7 +2,7 @@
 
 This reference documents how reviewers evaluate papers at major ML/AI conferences, helping authors anticipate and address reviewer concerns.
 
-Systems-specific review requirements outside this document must be reported to the core; this reference does not select another skill.
+This reference covers ML/AI venues only. Systems conference review requirements are out of scope and are returned to the core as a blocker, never redirected to another skill from here.
 
 ## Contents
 
@@ -11,8 +11,6 @@ Systems-specific review requirements outside this document must be reported to t
 - [ICML Reviewer Guidelines](#icml-reviewer-guidelines)
 - [ICLR Reviewer Guidelines](#iclr-reviewer-guidelines)
 - [ACL Reviewer Guidelines](#acl-reviewer-guidelines)
-- [Systems Conference Reviewer Guidelines](#systems-conference-reviewer-guidelines)
-- [What Makes Reviews Strong](#what-makes-reviews-strong)
 - [Common Reviewer Concerns](#common-reviewer-concerns)
 - [How to Address Reviewer Feedback](#how-to-address-reviewer-feedback)
 
@@ -102,7 +100,9 @@ Reviewers are explicitly instructed to:
 - Penalizing authors for honest limitation acknowledgment
 - Rejecting for missing citations to reviewer's own work
 
-### Timeline (NeurIPS 2025)
+### Timeline (NeurIPS 2025, historical)
+
+Recorded for orientation only; verify the current cycle's dates against the official venue source before relying on them.
 
 - Bidding: May 17-21
 - Reviewing period: May 29 - July 2

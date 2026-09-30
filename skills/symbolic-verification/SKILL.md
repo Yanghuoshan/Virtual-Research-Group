@@ -15,7 +15,7 @@ Formal or precise informal statement, axioms, domain restrictions, proof or solv
 
 1. Normalize quantifiers, types, boundary cases and assumptions. Distinguish a universal theorem from a result about a finite instance family.
 2. Separate soundness, completeness and termination obligations with [obligation mapping](references/obligation-mapping.md). Record exactly which are claimed and which the submitted argument establishes.
-3. Inspect inference steps and side conditions. For certificates, run only the assigned checker within authorized limits and retain the [certificate checking](references/certificate-checking.md) record: version, command, exit status and diagnostics.
+3. Inspect inference steps and side conditions. For certificates, run only the assigned checker within authorized limits and retain the [certificate checking](references/certificate-checking.md) record: version, command, exit status and diagnostics. Running a checker is an experiment activity, so the assignment must carry research mode, the four evaluation fields and the frozen protocol; without them return a blocker instead of running anything.
 4. For SAT/SMT results, distinguish satisfiable, unsatisfiable, unknown, timeout and crash. Validate a model against the original formula or a refutation certificate where supported.
 5. Seek small counterexamples to assumptions or unsupported generalization, without mistaking bounded testing for proof. Record the searched bounds explicitly.
 6. Analyze complexity with stated input size, computational model and worst-case/average-case distinction. Do not turn empirical solver speed into an asymptotic proof.
@@ -40,4 +40,4 @@ These define procedures for this skill only. They do not authorize launching sea
 
 ## Boundary
 
-Return to the core with the report or missing proof/checker evidence. Do not dispatch other skills or agents, choose models, schedule searches, change project goals, promote claims to global findings, or edit global state.
+Return to the core with the report or missing proof/checker evidence. Do not dispatch other skills or agents, choose models, schedule searches, change project goals, advance phases, promote claims to global findings, or edit global state.

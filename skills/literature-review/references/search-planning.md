@@ -57,7 +57,7 @@ Every filter narrows coverage and must be justified by the assignment: date rang
 
 ## Run Only Within Assigned Channels
 
-Execute searches only through core-assigned servers/tools with `external_services` authorization. For each run, save the raw response at an assigned path and log:
+Execute searches only through core-assigned servers/tools, with the external access the core approved and named in the task objective. For each run, save the raw response at an assigned path and log:
 
 | Field | Example |
 |---|---|

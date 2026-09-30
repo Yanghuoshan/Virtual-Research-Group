@@ -476,9 +476,9 @@ open slides.pdf talk.pptx
 
 ### In Beamer
 ```latex
-\graphicspath{{figures/}{../paper/figures/}}
+\graphicspath{{figures/}}
 
-% Reuse figures from the paper directory
+% Figures come from the assigned figure scope, not a path outside the task
 \begin{frame}{Main Results}
   \includegraphics[width=0.8\textwidth]{eval-throughput.pdf}
 \end{frame}

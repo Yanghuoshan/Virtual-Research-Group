@@ -110,7 +110,7 @@ Comprehensive self-check before submitting to OSDI, SOSP, ASPLOS, NSDI, and Euro
 ## Stage 5: Academic Integrity
 
 ### Citation Discipline
-- [ ] **Every citation verified programmatically** (Semantic Scholar / DBLP / CrossRef)
+- [ ] Every citation checked against the supplied verified bibliography; unresolved entries marked as `[CITATION NEEDED]` and returned to the core
 - [ ] No citations generated from memory or LLM output
 - [ ] Unverified citations marked as `[CITATION NEEDED]`
 - [ ] All BibTeX entries have: authors, title, venue, year, pages/DOI

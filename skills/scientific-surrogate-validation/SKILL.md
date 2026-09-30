@@ -40,4 +40,4 @@ These define procedures for this skill only. They do not authorize new experimen
 
 ## Boundary
 
-Return to the core with the audit or blockers. Do not dispatch other skills or agents, select models, run new scientific experiments, schedule simulations, alter global hypotheses or state, or promote predictions to verified findings.
+Return to the core with the audit or blockers. Do not dispatch other skills or agents, select models, run new scientific experiments, schedule simulations, alter global hypotheses or state, advance phases, or promote predictions to verified findings.

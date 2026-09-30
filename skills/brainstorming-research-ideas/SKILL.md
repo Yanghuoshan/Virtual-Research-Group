@@ -14,7 +14,7 @@ An assigned question, literature evidence with provenance, known failures, resou
 ## Method
 
 1. State the problem, affected setting, and unresolved mechanism in two sentences. Distinguish a real problem from a method looking for an application.
-2. Choose two or three lenses relevant to the supplied evidence from the [ideation lenses](references/ideation-lenses.md) catalog:
+2. Choose two or three lenses relevant to the supplied evidence from the [ideation lenses](references/ideation-lenses.md) catalog (ten lenses in total; the most frequently useful are summarized below):
    - **Tension:** identify competing objectives and ask whether the trade-off is fundamental or implementation-dependent.
    - **Abstraction:** generalize, specialize, or transfer a structural relation; state what assumptions change.
    - **Boundary:** vary an assumption about scale, distribution, composition, or time; predict a failure signature.

@@ -15,4 +15,4 @@
 
 ## What a Packet Binds
 
-The stored task contract, current evidence paths/hashes, new output scopes, requested model/session, core/state/skill fingerprints, authorization and budget. Its `summary` scopes this attempt only and never rewrites the task objective. The session field is only `requested`; context is bounded information in a session, not an identity. Different objectives or acceptance standards require a new task, not an edited packet.
+The stored task contract, current evidence paths/hashes, new output scopes, requested model/session, and core/state/skill fingerprints. Its `summary` scopes this attempt only and never rewrites the task objective. The session field is only `requested`; context is bounded information in a session, not an identity. Different objectives or acceptance standards require a new task, not an edited packet.

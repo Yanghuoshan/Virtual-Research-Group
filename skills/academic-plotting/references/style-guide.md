@@ -4,7 +4,7 @@ Standards for figure styling across major ML/AI conferences.
 
 ## Universal Rules
 
-1. **Vector format preferred** — Export PDF for LaTeX, PNG only for AI-generated diagrams
+1. **Vector format preferred** — Export PDF for LaTeX; raster PNG previews only when the assignment requests them
 2. **300 DPI minimum** for raster images
 3. **Colorblind-safe palettes** — Never rely on color alone; add markers, patterns, or labels
 4. **Consistent style** — All figures in a paper must share fonts, colors, and styling
@@ -21,7 +21,7 @@ Standards for figure styling across major ML/AI conferences.
 | Half width | 2.65 in | Side-by-side within column |
 | Max height | 9 in | Full page |
 
-Template: `\usepackage[final]{neurips_2025}`
+Template: download the current NeurIPS author kit from the official source; style-file names and years change every cycle.
 
 ### ICML
 
@@ -31,7 +31,7 @@ Template: `\usepackage[final]{neurips_2025}`
 | Full width | 6.75 in | `\begin{figure*}` |
 | Max height | 9.25 in | Full page |
 
-Template: `\usepackage{icml2026}`
+Template: download the current ICML author kit from the official source.
 
 ### ICLR
 
@@ -40,7 +40,7 @@ Template: `\usepackage{icml2026}`
 | Single column | 5.5 in | ICLR is single-column |
 | Max height | 9 in | Full page |
 
-Template: `\usepackage{iclr2026_conference}`
+Template: download the current ICLR author kit from the official source.
 
 ### ACL / EMNLP
 
@@ -49,7 +49,7 @@ Template: `\usepackage{iclr2026_conference}`
 | Single column | 3.3 in | ACL is two-column |
 | Full width | 6.8 in | `\begin{figure*}` |
 
-Template: `\usepackage[hyperref]{acl2025}`
+Template: download the current ACL style files from the official source.
 
 ### AAAI
 
@@ -198,43 +198,6 @@ for i, ax in enumerate(axes.flat):
 ax.text(-0.1, 1.05, "(a)", transform=ax.transAxes,
         fontsize=12, fontweight="bold", va="top")
 ```
-
-## Diagram Style Standards
-
-For AI-generated architecture/system diagrams:
-
-### Professional Diagram Palette
-
-```
-Section accents:  Blue #4A90D9, Teal #5BA58B, Amber #D4A252, Slate #7B8794
-Failure/error:    Red #D94A4A (dashed lines)
-Section fill:     #F7F7F5 (very pale warm gray)
-Box borders:      #DDDDDD
-Box fill:         #FFFFFF
-Primary text:     #333333
-Secondary text:   #666666
-Background:       #FFFFFF
-```
-
-### Layout Patterns for Diagrams
-
-| Pattern | When to Use | Description |
-|---------|-------------|-------------|
-| Horizontal bands | Layered architectures | Sections stacked vertically, boxes horizontal |
-| Left-to-right flow | Sequential pipelines | Input → Processing → Output |
-| Hub-and-spoke | Central component | Central node with radiating connections |
-| Grid | Matrix of components | Regular arrangement for comparison |
-| Tree | Hierarchical decisions | Top-down branching structure |
-
-### Arrow Conventions
-
-| Arrow Type | Style | Usage |
-|-----------|-------|-------|
-| Data flow | Solid, colored by source | Normal information passing |
-| Control flow | Solid, gray | Orchestration signals |
-| Error/failure | Dashed, red | Failure paths, refutation |
-| Optional | Dotted, gray | Conditional paths |
-| Bidirectional | Double-headed | Mutual dependencies |
 
 ## LaTeX Integration
 

@@ -34,4 +34,4 @@ No phantom relationships, reversed edges, invented measurements or unsupported c
 
 ## Boundary
 
-Return to the core with the design or rendering blocker. Do not dispatch other skills or agents, select or switch models, provision services, schedule retries, alter global state, or decide the next research task.
+Return to the core with the design or rendering blocker. Do not dispatch other skills or agents, select or switch models, provision services, schedule retries, alter global state, advance phases, or decide the next research task.

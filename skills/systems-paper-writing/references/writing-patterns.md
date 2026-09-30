@@ -157,7 +157,7 @@ Sia lists 5 primary contributions:
 
 ### How to Apply This Pattern
 
-1. List contributions as numbered items (3–7 is typical)
+1. List contributions as numbered items (3–5 is typical)
 2. Tag each with a type: Analysis, Design, Algorithm, System, Evaluation
 3. Cross-reference sections: "(§N)"
 4. Ensure each contribution is **testable** — a reviewer should be able to verify it from the paper

@@ -355,6 +355,43 @@ Rate each attempt on these 5 dimensions (1-5 scale):
 
 **If layout fails**: Add explicit coordinates or grid references. "Box A is at position (left: 10%, top: 20%)."
 
+## Diagram Style Standards
+
+For AI-generated architecture/system diagrams:
+
+### Professional Diagram Palette
+
+```
+Section accents:  Blue #4A90D9, Teal #5BA58B, Amber #D4A252, Slate #7B8794
+Failure/error:    Red #D94A4A (dashed lines)
+Section fill:     #F7F7F5 (very pale warm gray)
+Box borders:      #DDDDDD
+Box fill:         #FFFFFF
+Primary text:     #333333
+Secondary text:   #666666
+Background:       #FFFFFF
+```
+
+### Layout Patterns for Diagrams
+
+| Pattern | When to Use | Description |
+|---------|-------------|-------------|
+| Horizontal bands | Layered architectures | Sections stacked vertically, boxes horizontal |
+| Left-to-right flow | Sequential pipelines | Input → Processing → Output |
+| Hub-and-spoke | Central component | Central node with radiating connections |
+| Grid | Matrix of components | Regular arrangement for comparison |
+| Tree | Hierarchical decisions | Top-down branching structure |
+
+### Arrow Conventions
+
+| Arrow Type | Style | Usage |
+|-----------|-------|-------|
+| Data flow | Solid, colored by source | Normal information passing |
+| Control flow | Solid, gray | Orchestration signals |
+| Error/failure | Dashed, red | Failure paths, refutation |
+| Optional | Dotted, gray | Conditional paths |
+| Bidirectional | Double-headed | Mutual dependencies |
+
 ## TikZ Alternative (for LaTeX-native diagrams)
 
 Use when the diagram is simple enough for deterministic output:

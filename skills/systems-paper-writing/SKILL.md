@@ -34,7 +34,7 @@ Example: a cache hit-path microbenchmark is not evidence for whole-system speedu
 
 ## Boundary
 
-Return to the core with the artifact and gaps. Do not dispatch other skills or agents, select models, schedule benchmarks or revisions, change global state, or submit papers. Missing citation verification or another writing specialty is a blocker for the core, not a handoff owned by this skill.
+Return to the core with the artifact and gaps. Do not dispatch other skills or agents, select models, schedule benchmarks or revisions, change global state, advance phases, or submit papers. Missing citation verification or another writing specialty is a blocker for the core, not a handoff owned by this skill.
 
 ## Local References
 

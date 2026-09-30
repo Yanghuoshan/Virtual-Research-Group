@@ -35,7 +35,7 @@ Example: paired seed comparisons should retain pair identity; independently sort
 
 ## Boundary
 
-Return to the core with figures or missing-data/tool blockers. Do not dispatch other skills or agents, choose models, call image-generation services, schedule new experiments, change global findings/state, or redefine evaluation. Use only the assigned artifact paths.
+Return to the core with figures or missing-data/tool blockers. Do not dispatch other skills or agents, choose models, call image-generation services, schedule new experiments, change global findings/state, advance phases, or redefine evaluation. Use only the assigned artifact paths.
 
 ## Local References
 

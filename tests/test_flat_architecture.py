@@ -12,6 +12,19 @@ SPEC = importlib.util.spec_from_file_location('flat_research', ROOT / 'scripts/r
 TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
 
+# Key sets are asserted exactly, so an added routing or registry field fails loudly
+# instead of being invisible to a single "not in" check.
+TASK_KEYS = {'task_id', 'created_phase', 'objective', 'activity', 'skill', 'role',
+             'acceptance_criteria', 'independent_review', 'status', 'assignments', 'submission'}
+PACKET_KEYS = {'schema_version', 'packet_id', 'task_id', 'created_at', 'source_revision',
+               'state_sha256', 'core_sha256', 'project_phase', 'objective', 'activity', 'skill',
+               'target_role', 'requested_model', 'session', 'summary', 'acceptance_criteria', 'evidence',
+               'allowed_outputs', 'dispatch_status', 'receipt_required',
+               'framework_root', 'project_root', 'boundary'}
+SKILL_KEYS = {'name', 'description', 'path', 'sha256'}
+SESSION_KEYS = {'mode', 'reason', 'resume_session_id', 'independent_review', 'status',
+                'bootstrap_policy', 'unavailable_policy'}
+
 
 class FlatArchitectureTests(unittest.TestCase):
     def setUp(self):
@@ -21,8 +34,10 @@ class FlatArchitectureTests(unittest.TestCase):
 
     def initialize(self, role='strategist'):
         TOOL.initialize(ROOT, self.project, 'Study graph classification')
+        prompt = None if role in TOOL.ROLE_IDS else 'Judge the material from an explicitly supplied standpoint.'
         TOOL.create_task(ROOT, self.project, 't1', 'Compare explanations', activity='analysis',
-                         skill='brainstorming-research-ideas', role=role, acceptance='Every hypothesis has a falsifier')
+                         skill='brainstorming-research-ideas', role=role, acceptance='Every hypothesis has a falsifier',
+                         role_prompt_text=prompt)
 
     def evidence(self, name='literature/evidence.md', text='Sourced evidence'):
         path = self.project / name
@@ -66,29 +81,51 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertIn('which judgment the task requires', core)
         guidance = (ROOT / 'references/role-guidance.md').read_text()
         for fragment in ('| Role |', 'strategist', 'methodologist', 'analyst', 'critic',
-                         'A role carries no skill list', 'does not prove independence'):
+                         'A role carries no skill list', 'does not prove independence',
+                         'Role Prompt Templates', 'Red Lines for Role Prompts'):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, guidance)
         self.initialize()
         task = TOOL.create_task(ROOT, self.project, 't2', 'Explain an unexpected gain', activity='analysis',
                                 skill='graph-evaluation', role='critic', acceptance='List rival explanations')
-        self.assertEqual(task['role'], 'critic')
-        self.assertNotIn('skills', task)
+        self.assertEqual(task['role']['id'], 'critic')
+        self.assertTrue(task['role']['prompt'])
+        self.assertEqual(len(task['role']['sha256']), 64)
+        self.assertEqual(set(task), TASK_KEYS)
+        # A role id without a canonical template requires an explicit prompt.
+        with self.assertRaisesRegex(ValueError, 'prompt'):
+            TOOL.create_task(ROOT, self.project, 't3', 'Custom standpoint', activity='analysis',
+                             skill='graph-evaluation', role='red-team', acceptance='Probe the claim')
+        custom = TOOL.create_task(ROOT, self.project, 't3', 'Custom standpoint', activity='analysis',
+                                  skill='graph-evaluation', role='red-team', acceptance='Probe the claim',
+                                  role_prompt_text='Actively probe the claim for decisive counterexamples.')
+        self.assertEqual(custom['role']['id'], 'red-team')
+        self.assertIn('counterexamples', custom['role']['prompt'])
 
-    def test_external_tool_policy_is_recorded_but_not_enforced(self):
+    def test_external_tool_policy_lives_in_the_task_objective(self):
         core = (ROOT / 'SKILL.md').read_text()
         for fragment in ('## External Tools and MCP Servers', 'assigned by the core',
-                         'external_services', 'allowed_tools'):
+                         'task objective'):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, core)
+        self.assertNotIn('allowed_tools', core, 'The removed allowed_tools field must not be referenced')
         template = json.loads((ROOT / 'templates/research-state.json').read_text())
-        self.assertEqual(template['allowed_tools'], [])
+        self.assertNotIn('allowed_tools', template)
+        self.assertNotIn('authorization', template)
+        self.assertNotIn('budget', template)
+        self.assertNotIn('project_id', template)
+        self.assertNotIn('next_action', template)
         self.initialize()
-        state = self.state()
-        self.assertEqual(state['allowed_tools'], [])
-        state['allowed_tools'] = ['literature-search:search', 'literature-search:fetch']
-        self.save(state)
-        self.assertEqual(self.state()['allowed_tools'], ['literature-search:search', 'literature-search:fetch'])
+        # Permitted channels are declared in the objective text and reach the executor
+        # through the packet summary/objective, not through a state field or tool list.
+        packet = TOOL.handoff(ROOT, self.project, 't1',
+                              'Work from the brief using the assigned literature-search channel only',
+                              ['research-brief.md'],
+                              model='current', outputs=['reports/tool-policy.md'])
+        self.assertEqual(packet['activity'], 'analysis')
+        self.assertNotIn('allowed_tools', packet)
+        self.assertNotIn('authorization', packet)
+        self.assertNotIn('budget', packet)
 
     def test_model_selection_guidance_is_available_without_a_model_registry(self):
         core = (ROOT / 'SKILL.md').read_text()
@@ -106,7 +143,7 @@ class FlatArchitectureTests(unittest.TestCase):
         packet = TOOL.handoff(ROOT, self.project, 't1', 'Work from evidence', ['research-brief.md'],
                               model='current', outputs=['reports/m1.md'])
         self.assertEqual(packet['requested_model'], 'current')
-        self.assertNotIn('actual_model', packet)
+        self.assertEqual(set(packet), PACKET_KEYS)
 
     def test_phase_contract_stays_machine_readable_in_core(self):
         text = (ROOT / 'SKILL.md').read_text()
@@ -116,15 +153,41 @@ class FlatArchitectureTests(unittest.TestCase):
                 self.assertIn(marker, text)
         self.assertEqual(TOOL.core_phases(ROOT)['scope']['next'], ['ideation'])
         guidance = (ROOT / 'references/phase-guidance.md').read_text()
-        for fragment in ('Scope and ideation', 'Synthesis / outer loop', 'Stop:', 'Cross-Phase Tasks'):
+        for fragment in ('## Allowed Transitions', 'Cross-Phase Tasks', 'project status'):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, guidance)
+        for name in TOOL.core_phases(ROOT):
+            with self.subTest(phase=name):
+                self.assertIn(f'- **{name}:**', guidance,
+                              'Phase guidance must describe every authoritative phase')
 
     def test_entry_point_stays_within_reading_budget(self):
         notes = TOOL.budget_notes(ROOT)
         self.assertEqual(notes, [], 'Entry documents exceeded the progressive-disclosure budget')
         skill = max((p for p in (ROOT / 'skills').glob('*/SKILL.md')), key=lambda p: p.stat().st_size)
-        self.assertLess(skill.stat().st_size, 20000, f'Specialist entry too large: {skill.parent.name}')
+        self.assertLessEqual(skill.stat().st_size, TOOL.SKILL_BUDGET,
+                             f'Specialist entry too large: {skill.parent.name}')
+
+    def test_reading_budget_is_advisory_not_a_validation_failure(self):
+        with tempfile.TemporaryDirectory() as fake:
+            root = Path(fake)
+            (root / 'SKILL.md').write_text('x' * (25001))
+            (root / 'README.md').write_text('y')
+            directory = root / 'skills' / 'demo'
+            directory.mkdir(parents=True)
+            (directory / 'SKILL.md').write_text('z' * (TOOL.SKILL_BUDGET + 1))
+            notes = TOOL.budget_notes(root)
+        self.assertEqual(len(notes), 2, notes)
+        for note in notes:
+            self.assertTrue(note.startswith(TOOL.ADVISORY_PREFIX), f'Budget note lacks the advisory prefix: {note}')
+        self.assertEqual([x for x in TOOL.validate(ROOT) if not x.startswith(TOOL.ADVISORY_PREFIX)], [])
+
+    def test_every_specialist_boundary_forbids_phase_advancement(self):
+        for name, entry in TOOL.discover_skills(ROOT).items():
+            text = (ROOT / entry['path']).read_text()
+            with self.subTest(skill=name):
+                self.assertRegex(text, r'advance (research )?phases',
+                                 'Specialist boundaries must name phase advancement as core-only')
 
     def test_reference_documents_are_reachable_not_orphaned(self):
         documents = [path for path in ROOT.rglob('*.md') if '.git' not in path.parts]
@@ -145,13 +208,32 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, contract)
 
+    def test_research_log_template_defines_single_brief_block(self):
+        template = (ROOT / 'templates/research-log.md').read_text(encoding='utf-8')
+        self.assertEqual(template.count('<!-- brief:start -->'), 1, 'Brief block must be unique')
+        self.assertEqual(template.count('<!-- brief:end -->'), 1, 'Brief block must be unique')
+        self.assertLess(template.index('<!-- brief:start -->'), template.index('## Decision Narrative'),
+                        'Brief block must precede the append-only narrative')
+        for field in ('Updated', 'Status', 'Phase', 'Active task', 'Open blockers', 'Last decision', 'Next'):
+            with self.subTest(field=field):
+                self.assertIn(field, template)
+        errors = TOOL.validate(ROOT)
+        self.assertEqual(errors, [note for note in errors if note.startswith(TOOL.ADVISORY_PREFIX)],
+                         'Validation must accept the brief markers')
+
+    def test_initialize_carries_brief_block_into_project(self):
+        TOOL.initialize(ROOT, self.project, 'Study brief propagation')
+        log = (self.project / 'research-log.md').read_text(encoding='utf-8')
+        self.assertEqual(log.count('<!-- brief:start -->'), 1)
+        self.assertEqual(log.count('<!-- brief:end -->'), 1)
+
     def test_skills_are_directly_discoverable(self):
         self.assertTrue(callable(getattr(TOOL, 'discover_skills', None)), 'Direct skill discovery is missing')
         skills = TOOL.discover_skills(ROOT)
         self.assertIn('graph-evaluation', skills)
         for name, entry in skills.items():
             self.assertEqual(entry['path'], f'skills/{name}/SKILL.md')
-            self.assertNotIn('optional_capabilities', entry)
+            self.assertEqual(set(entry), SKILL_KEYS)
 
     def specialist_contract(self, name, fragments):
         path = ROOT / 'skills' / name / 'SKILL.md'
@@ -164,7 +246,7 @@ class FlatArchitectureTests(unittest.TestCase):
     def test_literature_review_contract_limits_search_and_coverage_claims(self):
         self.specialist_contract('literature-review', (
             'supplied-corpus', 'eligibility criteria', 'deduplicate', 'PRISMA',
-            'external_services', 'source locator', 'risk of bias',
+            'core approved', 'source locator', 'risk of bias',
             'Do not invent', 'Return to the core', 'Do not dispatch',
         ))
 
@@ -233,6 +315,64 @@ class FlatArchitectureTests(unittest.TestCase):
                     for fragment in fragments:
                         with self.subTest(fragment=fragment):
                             self.assertIn(fragment, text)
+
+    def test_experiment_execution_contract_bounds_protocol_runs(self):
+        self.specialist_contract('experiment-execution', (
+            'frozen protocol', 'sandbox', 'run directory', 'code snapshot',
+            'environment', 'results', 'analysis.md', 'blocker',
+            'Do not retry', 'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_data_processing_contract_manifests_every_transformation(self):
+        self.specialist_contract('data-processing', (
+            'manifest', 'checksum', 'reason', 'traceable', 'reconcile',
+            'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_statistical_analysis_contract_preserves_prespecification(self):
+        self.specialist_contract('statistical-analysis', (
+            'confirmatory', 'exploratory', 'multiplicity', 'unit',
+            'primary_measure', 'uncertainty_plan', 'blocker',
+            'Return to the core', 'Do not dispatch',
+        ))
+
+    def test_execution_and_data_specialists_bundle_local_method_references(self):
+        expected = {
+            'experiment-execution': {
+                'run-management.md': ('run id', 'run-summary'),
+                'environment-and-code.md': ('seed', 'checksum'),
+                'results-recovery.md': ('timeout', 'partial'),
+                'sandbox-assignment.md': ('blocker', 'channel'),
+            },
+            'data-processing': {
+                'manifest-schema.md': ('reason', 'sha256'),
+            },
+            'statistical-analysis': {
+                'test-selection.md': ('estimand', 'unit'),
+                'uncertainty-and-reporting.md': ('interval', 'multiplicity'),
+            },
+        }
+        for skill, references in expected.items():
+            entry = (ROOT / 'skills' / skill / 'SKILL.md').read_text(encoding='utf-8')
+            for name, fragments in references.items():
+                path = ROOT / 'skills' / skill / 'references' / name
+                with self.subTest(skill=skill, reference=name):
+                    self.assertTrue(path.is_file(), f'Missing reference: {skill}/{name}')
+                    self.assertIn(f'references/{name}', entry)
+                    text = path.read_text(encoding='utf-8')
+                    self.assertNotRegex(text, r'\]\(\.\./')
+                    for fragment in fragments:
+                        with self.subTest(fragment=fragment):
+                            self.assertIn(fragment, text)
+
+    def test_host_bridge_and_diagrams_are_linked_from_core(self):
+        core = (ROOT / 'SKILL.md').read_text()
+        self.assertIn('references/host-bridge.md', core)
+        self.assertIn('references/architecture-diagrams.md', core)
+        bridge = (ROOT / 'references/host-bridge.md').read_text(encoding='utf-8')
+        for fragment in ('Read-only', 'watchdog', 'intervention', 'receipt'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, bridge)
 
     def test_experimental_design_contract_handles_dependence_and_power(self):
         self.specialist_contract('experimental-design', (
@@ -388,7 +528,7 @@ class FlatArchitectureTests(unittest.TestCase):
                 self.assertEqual(packet['project_phase'], 'scope')
                 self.assertEqual(packet['session']['independent_review'], independent)
                 self.assertEqual(packet['session']['mode'], 'fresh')
-                self.assertFalse(any(packet['authorization'].values()))
+                self.assertNotIn('authorization', packet)
                 self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
                 self.assertFalse((self.project / output).exists())
                 with self.assertRaisesRegex(ValueError, 'evidence'):
@@ -410,7 +550,7 @@ class FlatArchitectureTests(unittest.TestCase):
         for name in ('literature-review', 'experimental-design', 'reproducibility-audit',
                      'manuscript-review', 'llm-evaluation', 'code-model-evaluation',
                      'interpretability-validation'):
-            for activity, error in (('experiment', 'experiment authorization'),
+            for activity, error in (('experiment', 'research mode'),
                                     ('conclusions', 'Verified findings required')):
                 with self.subTest(skill=name, activity=activity):
                     self.assertIn(name, available)
@@ -458,21 +598,23 @@ class FlatArchitectureTests(unittest.TestCase):
         self.assertEqual({p.name for p in self.project.iterdir()},
                          {'research-state.json', 'research-brief.md', 'research-log.md', 'findings.md'})
         state = self.state()
-        self.assertEqual(state['schema_version'], 3)
+        self.assertEqual(state['schema_version'], 4)
         self.assertEqual(state['mode'], 'planning')
         self.assertNotIn('domain', state)
-        self.assertFalse(any(state['authorization'].values()))
+        for removed in ('authorization', 'allowed_tools', 'budget', 'project_id', 'next_action'):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, state, f'Dead field must not be initialized: {removed}')
 
     def test_explicit_single_skill_role_model_not_inferred(self):
         self.initialize(role='critical-reader')
         before = (self.project / 'research-state.json').read_bytes()
         packet = self.packet(model='provider/selected-model')
         self.assertEqual(packet['skill']['name'], 'brainstorming-research-ideas')
-        self.assertEqual(packet['target_role'], 'critical-reader')
+        self.assertEqual(packet['target_role']['id'], 'critical-reader')
+        self.assertTrue(packet['target_role']['prompt'])
         self.assertEqual(packet['requested_model'], 'provider/selected-model')
         self.assertEqual(packet['dispatch_status'], 'not_dispatched')
-        self.assertNotIn('knowledge_sources', packet)
-        self.assertNotIn('domain_profile', packet)
+        self.assertEqual(set(packet), PACKET_KEYS)
         self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
 
     def test_outputs_cannot_touch_global_state(self):
@@ -508,20 +650,20 @@ class FlatArchitectureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TOOL.discover_skills(bundle)
 
-    def test_frozen_protocol_and_authorization_gate_remain(self):
+    def test_frozen_protocol_and_mode_gate_remain(self):
         self.initialize()
         TOOL.create_task(ROOT, self.project, 'run', 'Evaluate frozen outputs', activity='experiment',
-                         skill='graph-evaluation', role='evaluator', acceptance='Report per-seed metrics')
+                         skill='graph-evaluation', role='experimenter', acceptance='Report per-seed metrics')
         protocol = self.evidence('experiments/H1/protocol.md')
         state = self.state()
-        state.update(phase='design', mode='research', protocol=protocol)
+        state.update(phase='design', mode='planning', protocol=protocol)
         state['evaluation'] = dict(primary_measure='Macro F1', baseline='Graph kernel',
                                    validation_plan='Grouped graph splits', uncertainty_plan='Five seeds')
         self.save(state)
         args = dict(model='current', outputs=['experiments/H1/runs/run-001/results/'])
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, 'research mode'):
             TOOL.handoff(ROOT, self.project, 'run', 'Evaluate frozen outputs', [protocol['path']], **args)
-        state['authorization']['experiments'] = True
+        state['mode'] = 'research'
         self.save(state)
         packet = TOOL.handoff(ROOT, self.project, 'run', 'Evaluate frozen outputs', [protocol['path']], **args)
         self.assertEqual(packet['skill']['name'], 'graph-evaluation')
