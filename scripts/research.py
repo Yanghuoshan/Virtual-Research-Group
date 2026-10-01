@@ -1061,32 +1061,73 @@ def host_event(root, project, task_id, job_id, status, reason):
                                                       'job_id': job_id, 'reason': reason})
 
 
-GATE_FIXES = {'grant evidence': 'amend --kind grant', 'protocol': 'amend --kind protocol',
-              'goal dossier': 'amend --kind goal', 'evidence review': 'set-audit --kind evidence',
-              'final review': 'set-audit --kind final'}
+# A repair step is an executable command, never prose advice, so each broken binding
+# names the command that rebinds it at the project that owns it. `amend` rebinds the
+# three global gate artifacts and is not registered yet, so those fixes are named
+# but not runnable; the rest are commands the core can issue as written.
+AMEND_KINDS = {'grant evidence': ('grant', '<why the approval artifact changed>'),
+               'protocol': ('protocol', '<why the protocol changed>'),
+               'goal dossier': ('goal', '<why the dossier changed>')}
+AUDIT_KINDS = {'evidence review': ('evidence', 'verified'), 'final review': ('final', 'passed')}
 
 
-def binding_report(root, project):
+def binding_fix(project, binding, path, task_id=None):
+    """The one command that rebinds a broken binding, at the project that owns it."""
+    option = f'--project {project}'
+    if binding in AMEND_KINDS:
+        kind, why = AMEND_KINDS[binding]
+        return f'amend {option} --kind {kind} --reason "{why}"'
+    if binding in AUDIT_KINDS:
+        kind, status = AUDIT_KINDS[binding]
+        return f'set-audit {option} --kind {kind} --path {path} --status {status} --reason "..."'
+    if binding == 'reflection artifact':
+        return (f'reflect {option} --task {task_id} --path {path} '
+                '--reason "<record a new versioned report>"')
+    return f'task-status {option} --task {task_id} --status planned --reason "reissue the packet"'
+
+
+def binding_measurement(project, path, recorded_sha256):
+    """What the disk says about one bound path: its hash now, or why the row is broken.
+
+    A watchdog degrades instead of raising, so a path that escapes the project or a
+    file that cannot be read is reported as unreadable rather than crashing the report.
+    """
+    try:
+        target = local_path(project, path)
+    except ValueError:
+        return {'current_sha256': None, 'holds': False, 'detail': 'unreadable'}
+    if not target.is_file():
+        return {'current_sha256': None, 'holds': False, 'detail': 'file is missing'}
+    try:
+        # The hash memo is bypassed: this is a claim about the bytes on disk right now,
+        # and watch runs in its own process where the memo is cold anyway.
+        current = digest(target, cached=False)
+    except OSError:
+        return {'current_sha256': None, 'holds': False, 'detail': 'unreadable'}
+    result = {'current_sha256': current, 'holds': current == recorded_sha256}
+    if recorded_sha256 is None:
+        result['detail'] = 'no recorded hash'
+    return result
+
+
+def binding_report(root, project, state=None):
     """Read-only: every hash binding in the project and whether it still holds.
 
     Bindings are global and silent: one edit breaks several gates at once and
     nothing reports it until the next refusal, which is why a correction costs
     three round trips. This lists them all so one command follows the edit.
     """
-    state, _ = project_state(root, project)
+    if state is None:
+        state, _ = project_state(root, project)
     rows = []
 
-    def add(binding, reference, task_status=None):
+    def add(binding, reference, task_status=None, task_id=None):
         if not isinstance(reference, dict) or not nonempty(reference.get('path')):
             return
         row = {'binding': binding, 'path': reference['path'], 'recorded_sha256': reference.get('sha256'),
-               'task_status': task_status, 'fix': GATE_FIXES.get(binding, 'replan the task and reissue its packet')}
-        target = Path(project).resolve() / reference['path']
-        if target.is_file():
-            row['current_sha256'] = digest(target)
-            row['holds'] = row['current_sha256'] == reference.get('sha256')
-        else:
-            row.update(current_sha256=None, holds=False, detail='file is missing')
+               'task_status': task_status,
+               'fix': binding_fix(project, binding, reference['path'], task_id)}
+        row.update(binding_measurement(project, reference['path'], reference.get('sha256')))
         rows.append(row)
 
     add('grant evidence', (state.get('grant') or {}).get('evidence'))
@@ -1097,11 +1138,11 @@ def binding_report(root, project):
     for task_id, task in state['tasks'].items():
         for assignment in task['assignments']:
             for record in assignment['evidence']:
-                add(f'{task_id} assignment input', record, task['status'])
+                add(f'{task_id} assignment input', record, task['status'], task_id)
         for record in task['submission']:
-            add(f'{task_id} submitted artifact', record, task['status'])
+            add(f'{task_id} submitted artifact', record, task['status'], task_id)
     for reflection in state.get('reflections', []):
-        add('reflection artifact', reflection.get('artifact'))
+        add('reflection artifact', reflection.get('artifact'), task_id=reflection.get('task_id'))
     return {'bindings': rows, 'broken': [row for row in rows if not row['holds']],
             'note': 'Read only; amend rebinds one gate artifact and records old and new hashes'}
 
@@ -1142,11 +1183,18 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
         if (now - opened).total_seconds() > blocker_hours * 3600:
             problems.append({'reason': 'blocker-age',
                              'detail': f"{blocker['blocker_id']}: {blocker['text']}"})
-    for row in binding_report(root, project)['bindings']:
-        if row['holds'] or row.get('task_status') in ('completed', 'cancelled'):
+    for row in binding_report(root, project, state)['bindings']:
+        if row['holds']:
             continue
+        # Content drift on a finished task is history; a deleted file is not a consequence
+        # of finishing the work, so it stays visible.
+        if row.get('task_status') in ('completed', 'cancelled') and row.get('detail') != 'file is missing':
+            continue
+        # A deleted file and an edited file are repaired differently, so the row's own
+        # detail names the repair: rebind the new bytes, or restore the missing file.
+        detail = row.get('detail') or 'no longer matches its recorded hash'
         problems.append({'reason': 'binding-drift',
-                         'detail': f"{row['binding']}: {row['path']} no longer matches its recorded hash"})
+                         'detail': f"{row['binding']}: {row['path']} {detail}"})
     log = Path(project).resolve() / 'research-log.md'
     if not log.is_file():
         problems.append({'reason': 'brief-drift', 'detail': 'research-log.md is missing'})

@@ -1,12 +1,15 @@
 """Hash bindings are visible and repairable instead of silent."""
 
-import hashlib
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from test_framework import ROOT, load_tool
+
+# A repair step may name a command that is not registered yet: `amend` (the rebinding
+# of a grant, protocol or goal dossier) arrives in a later task.
+PENDING_COMMANDS = {'amend'}
 
 # A goal dossier is admitted only when every field appears on exactly one populated line.
 GOAL_DOSSIER = '\n'.join((
@@ -53,8 +56,8 @@ class BindingRepairTests(unittest.TestCase):
 
     def drift_details(self):
         """The detail text of every binding-drift anomaly watch reports right now."""
-        return [problem.get('detail') for problem in self.tool.watch(ROOT, self.project, silence_hours=1e9)
-                ['anomalies'] if problem['reason'] == 'binding-drift']
+        return [problem.get('detail') for problem in self.tool.watch(ROOT, self.project)['anomalies']
+                if problem['reason'] == 'binding-drift']
 
     def audit(self, name, subjects, claim, support):
         """An audit JSON under reviews/, filled in from the shipped template."""
@@ -166,3 +169,113 @@ class BindingRepairTests(unittest.TestCase):
         self.assertIsNone(row['current_sha256'])
         self.assertFalse(row['holds'])
         self.assertEqual(row['detail'], 'file is missing')
+
+    def test_watch_names_a_deleted_binding_as_missing_and_not_as_a_mismatch(self):
+        """A deleted file and an edited file are repaired differently, so they read differently."""
+        protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
+        self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
+        (self.project / protocol).unlink()
+        details = self.drift_details()
+        self.assertIn(f'protocol: {protocol} file is missing', details)
+        self.assertEqual([], [text for text in details if 'no longer matches its recorded hash' in text],
+                         details)
+
+    def test_watch_still_reports_a_deleted_file_on_a_finished_task(self):
+        # Content drift on a finished task is history; a deleted file is not a consequence
+        # of finishing the work, so it stays visible.
+        for status in ('completed', 'cancelled'):
+            with self.subTest(status=status):
+                task_id = f'deleted-{status}'
+                self.create(task_id)
+                _, artifact = self.submit_version(task_id, 1)
+                self.tool.update_task(ROOT, self.project, task_id, status, 'Core closed the task', [])
+                self.assertEqual(self.state()['tasks'][task_id]['status'], status)
+                (self.project / artifact).unlink()
+                self.assertIn(f'{task_id} submitted artifact: {artifact} file is missing',
+                              self.drift_details())
+
+    def test_bindings_report_reads_the_bytes_on_disk_and_not_the_hash_memo(self):
+        """A report is a claim about the bytes on disk now, so the memo must not serve it."""
+        target = self.project / self.approval
+        expected = self.tool.digest(target, cached=False)
+        self.tool.HASH_MEMO.clear()
+        self.addCleanup(self.tool.HASH_MEMO.clear)
+        self.assertEqual(self.tool.digest(target), expected, 'The memo starts from the real bytes')
+        self.assertEqual(len(self.tool.HASH_MEMO), 1, 'Only this one file was hashed')
+        key = next(iter(self.tool.HASH_MEMO))
+        self.tool.HASH_MEMO[key] = 'a hash read before the file was edited'
+        self.assertEqual(self.row_for(self.approval)['current_sha256'], expected)
+
+    def assertRealCommands(self, steps):
+        """Every fix names a registered command and only real flags of it."""
+        commands = {name: dict(options) for name, _, options in self.tool.CLI}
+        for step in steps:
+            name = step.split()[0]
+            if name in PENDING_COMMANDS:
+                continue
+            with self.subTest(step=step):
+                self.assertIn(name, commands, f'{name} is not a registered command')
+                for flag in [word for word in step.split() if word.startswith('--')]:
+                    self.assertIn(flag[2:], commands[name], f'{name} has no {flag}')
+
+    def test_every_binding_fix_is_a_command_built_with_the_project_and_task(self):
+        """A fix is a command the core can issue now, so it names the project and task it applies to."""
+        self.build_every_binding()
+        fix_of = {row['binding']: row['fix']
+                  for row in self.tool.binding_report(ROOT, self.project)['bindings']}
+        self.assertEqual(sorted(fix_of),
+                         ['evidence review', 'final review', 'goal dossier', 'grant evidence', 'protocol',
+                          'reflection artifact', 'run assignment input', 'run submitted artifact'])
+        for binding, fix in fix_of.items():
+            with self.subTest(binding=binding):
+                self.assertIn(f'--project {self.project}', fix, f'{binding} names no project to repair')
+        for binding in ('run assignment input', 'run submitted artifact', 'reflection artifact'):
+            with self.subTest(binding=binding):
+                self.assertIn('--task run', fix_of[binding], f'{binding} names no task to repair')
+        self.assertEqual(fix_of['reflection artifact'],
+                         f'reflect --project {self.project} --task run --path reports/reflection-v1.json '
+                         '--reason "<record a new versioned report>"')
+        self.assertEqual(fix_of['evidence review'],
+                         f'set-audit --project {self.project} --kind evidence '
+                         '--path reviews/evidence-audit.json --status verified --reason "..."')
+        self.assertRealCommands(fix_of.values())
+
+    def test_an_unreadable_bound_file_is_reported_instead_of_raising(self):
+        """A watchdog degrades: a file it cannot read is reported, never raised."""
+        protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
+        self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
+        target = self.project / protocol
+        mode = target.stat().st_mode
+        target.chmod(0o000)
+        self.addCleanup(target.chmod, mode)
+        row = self.row_for(protocol)
+        self.assertIsNone(row['current_sha256'])
+        self.assertFalse(row['holds'])
+        self.assertEqual(row['detail'], 'unreadable')
+        self.assertIn(f'protocol: {protocol} unreadable', self.drift_details())
+
+    def test_a_bound_path_that_escapes_the_project_is_unreadable(self):
+        """A hand-edited state must not point the hasher outside the project."""
+        protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
+        self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
+        outside = Path(self.temp.name) / 'outside.md'
+        outside.write_text('Private text outside the project')
+        state = self.state()
+        state['protocol'] = {'path': '../outside.md', 'sha256': self.tool.digest(outside)}
+        (self.project / 'research-state.json').write_text(json.dumps(state))
+        row = self.row_for('../outside.md')
+        self.assertIsNone(row['current_sha256'])
+        self.assertFalse(row['holds'])
+        self.assertEqual(row['detail'], 'unreadable')
+
+    def test_a_row_without_a_recorded_hash_says_so(self):
+        """A broken row always says why: here the state recorded no hash to compare against."""
+        protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
+        self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
+        state = self.state()
+        state['protocol'] = {'path': protocol}
+        (self.project / 'research-state.json').write_text(json.dumps(state))
+        row = self.row_for(protocol)
+        self.assertIsNone(row['recorded_sha256'])
+        self.assertFalse(row['holds'])
+        self.assertEqual(row['detail'], 'no recorded hash')
