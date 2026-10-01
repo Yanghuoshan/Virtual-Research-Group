@@ -57,9 +57,24 @@ def iso_timestamp(value, label):
     return value
 
 
+# One command needs the packet digest up to three times: the receipt, the receipt
+# check and the stored assignment record. Keying the memo on the exact serialized
+# payload keeps it correct by construction, and the limit keeps it small.
+PACKET_MEMO = {}
+PACKET_MEMO_LIMIT = 8
+
+
 def packet_digest(packet):
-    return hashlib.sha256(json.dumps(packet, sort_keys=True, ensure_ascii=False,
-                                      separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
+    payload = json.dumps(packet, sort_keys=True, ensure_ascii=False,
+                         separators=(',', ':'), allow_nan=False)
+    cached = PACKET_MEMO.get(payload)
+    if cached is not None:
+        return cached
+    value = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+    if len(PACKET_MEMO) >= PACKET_MEMO_LIMIT:
+        PACKET_MEMO.clear()
+    PACKET_MEMO[payload] = value
+    return value
 
 
 def preflight_token(task_id, packet_id, server, operation, scope, classification):
@@ -227,8 +242,45 @@ def atomic_write_json(path, value):
             temporary.unlink()
 
 
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+# Hashing is the identity primitive behind every binding, and one command often
+# hashes the same artifact several times: an assignment re-verifies each evidence
+# file when it is accepted, and an audit re-checks every one of its subjects.
+# Stream the file in chunks so a large result set is never held in memory at
+# once, and memoize per device, inode and stamps so a repeated check costs a
+# stat instead of a second full read. The memo is process-local, and the state
+# write path bypasses it: there the bytes on disk are the thing being tested.
+HASH_CHUNK = 1 << 20
+HASH_MEMO = {}
+HASH_MEMO_LIMIT = 512
+
+
+def digest(path, *, cached=True):
+    """SHA-256 of one file, streamed in chunks and memoized while it is unchanged.
+
+    The value stays byte-exact: the memo only avoids recomputation when the file
+    cannot have changed, so cached=False is required wherever a check is about
+    what is on disk right now.
+    """
+    target = Path(path)
+    key = None
+    if cached:
+        try:
+            stat = target.stat()
+            key = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+        except OSError:
+            key = None
+        if key in HASH_MEMO:
+            return HASH_MEMO[key]
+    value = hashlib.sha256()
+    with target.open('rb') as stream:
+        for block in iter(lambda: stream.read(HASH_CHUNK), b''):
+            value.update(block)
+    result = value.hexdigest()
+    if key is not None:
+        if len(HASH_MEMO) >= HASH_MEMO_LIMIT:
+            HASH_MEMO.clear()
+        HASH_MEMO[key] = result
+    return result
 
 
 def local_path(base, relative):
@@ -502,6 +554,20 @@ def verify_audit(project, reference, label, required_paths, required_prefixes):
     return [record] + checked
 
 
+def bind(project, paths):
+    """Read-only: emit path/sha256 pairs in exactly the shape evidence and audits need.
+
+    Audit subjects, processing manifests and reflection evidence must carry real
+    hashes, never transcribed or invented ones. Computing them here is what makes
+    that cheap enough to be habitual; the paths are normalized the same way
+    evidence_record normalizes them, so the output drops straight into a
+    subjects or evidence list.
+    """
+    resolved_project = Path(project).resolve()
+    require(isinstance(paths, list) and paths, 'At least one project-relative path is required')
+    return [evidence_record(resolved_project, value) for value in paths]
+
+
 def audit_subject_requirements(project, state):
     """An evidence audit always binds findings.md plus the frozen protocol, when one exists."""
     required = ['findings.md']
@@ -649,10 +715,14 @@ def project_state(root, project):
 
 def save_decision(project, state, expected_hash, event):
     path = Path(project).resolve() / 'research-state.json'
-    require(not path.is_symlink() and digest(path) == expected_hash, 'State changed; retry the core decision')
+    # Uncached on purpose: this is an optimistic concurrency check, so it must
+    # observe the bytes on disk at each of the two moments, never a memo.
+    require(not path.is_symlink() and digest(path, cached=False) == expected_hash,
+            'State changed; retry the core decision')
     state['revision'] += 1
     state['history'].append(dict(event, revision=state['revision'], at=datetime.now(timezone.utc).isoformat()))
-    require(not path.is_symlink() and digest(path) == expected_hash, 'State changed; retry the core decision')
+    require(not path.is_symlink() and digest(path, cached=False) == expected_hash,
+            'State changed; retry the core decision')
     atomic_write_json(path, state)
     return state
 
@@ -1626,6 +1696,8 @@ CLI = (
     ('validate', 'Validate core contract, flat skills, extensions and provenance', ()),
     ('skills', 'List built-in and extension skills directly from disk', ()),
     ('status', 'Print a read-only progress board; no state change', (('project', PROJECT),)),
+    ('bind', 'Read-only: print path/sha256 pairs for audit subjects, manifests and reflections',
+     (('project', PROJECT), ('path', MANY))),
     ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, project silence',
      (('project', PROJECT), ('hours', {'type': float, 'default': 2.0}),
       ('receipt-hours', {'type': float, 'default': 6.0}),
@@ -1700,6 +1772,7 @@ CLI = (
 
 RUNNERS = {
     'skills': lambda a: all_skills(),
+    'bind': lambda a: bind(a.project, a.path),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
     'migrate': lambda a: migrate_project(ROOT, a.project),

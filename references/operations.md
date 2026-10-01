@@ -8,6 +8,7 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 |---|---|---|
 | `validate`, `skills` | Check the bundle or discover direct and extension skills | No |
 | `status` | Print a read-only progress board | No |
+| `bind` | Print path/`sha256` pairs for audit subjects, manifests and reflection evidence | No |
 | `init` | Create four planning documents in a new directory | Creates a project; never overwrites |
 | `migrate` | Explicitly upgrade an idle planning schema-5, schema-6 or schema-7 project to schema 8 | Yes, not phase |
 | `set-goal` | Select a versioned goal dossier under `hypotheses/` or `reports/` | Yes, not phase |
@@ -93,6 +94,15 @@ python3 scripts/research.py set-audit --project ./projects/study --kind evidence
 ```
 
 An evidence audit must bind `findings.md`, the frozen protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/` (survey and report projects may close on `literature/` or `reports/` evidence); a final review must bind `findings.md` and primary artifacts under `paper/` or `reports/`. Audit records use schema 2: a nonempty reviewer, an ISO 8601 `reviewed_at`, and at least one verified claim with its support. Every evidence path cited by a conclusions task or by `phase --to complete` must already appear in the audited subjects, so an unaudited file cannot ride along with a verified claim.
+
+Subjects are real `path`/`sha256` pairs, and an invented or transcribed hash is a falsified binding. Compute them instead of writing them:
+
+```bash
+python3 scripts/research.py bind --project ./projects/study \
+  --path findings.md experiments/h1/protocol.md experiments/h1/runs/run-001/results/metrics.jsonl
+```
+
+The output is a JSON array of `{"path", "sha256"}` objects, normalized exactly as assignment evidence is, so it drops straight into an audit `subjects` list, a processing manifest's `sources`, or a reflection `evidence` array. `bind` is read-only, never edits state, and refuses missing or empty files. Hashes are streamed, so large result sets are bound without being read into memory; repeated checks inside one command reuse the value while the file is unchanged, and the state-write check always re-reads the bytes on disk.
 
 `stopped` closes new tasks, handoffs, acceptance, task-status, phase decisions and gate commands alike; only `project-status --to active` reopens it. It requires the active executor to have stopped first, and setting the status the project already has is refused. While a project stays active, open blockers stop task creation, assignment, completion and phase decisions, so pausing work without closing the project is expressed as blockers rather than as a status value.
 

@@ -135,6 +135,35 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(packet['skill']['sha256'], self.tool.digest(ROOT / packet['skill']['path']))
         self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
 
+    def test_bind_emits_real_subject_hashes_without_state_change(self):
+        # A specialist writing an audit, manifest or reflection must record real
+        # hashes; bind computes them, so transcription is never the only option.
+        self.initialize()
+        before = (self.project / 'research-state.json').read_bytes()
+        name = self.evidence()
+        bound = self.tool.bind(self.project, ['research-brief.md', name])
+        self.assertEqual([record['path'] for record in bound], ['research-brief.md', name])
+        for record in bound:
+            self.assertEqual(record['sha256'],
+                             hashlib.sha256((self.project / record['path']).read_bytes()).hexdigest())
+        self.assertEqual(before, (self.project / 'research-state.json').read_bytes())
+        with self.assertRaisesRegex(ValueError, 'Missing or empty'):
+            self.tool.bind(self.project, ['missing.md'])
+
+    def test_digest_streams_large_files_and_never_serves_a_stale_hash(self):
+        self.initialize()
+        path = self.project / 'data/measurements.bin'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = bytes(range(256)) * (self.tool.HASH_CHUNK // 256 + 500)
+        path.write_bytes(body)
+        expected = hashlib.sha256(body).hexdigest()
+        self.assertGreater(len(body), self.tool.HASH_CHUNK, 'The sample must span several chunks')
+        self.assertEqual(self.tool.digest(path), expected)
+        self.assertEqual(self.tool.digest(path), expected)
+        self.assertEqual(self.tool.digest(path, cached=False), expected)
+        path.write_bytes(body + b'appended row')
+        self.assertNotEqual(self.tool.digest(path), expected)
+
     def test_missing_evidence_and_blank_summary_rejected(self):
         self.initialize()
         for summary, evidence in [(' ', []), ('Hypotheses', []), ('Hypotheses', ['missing.md'])]:

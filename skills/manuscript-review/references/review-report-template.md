@@ -39,4 +39,4 @@ Return a task-local report at a new assigned path. Recommendations inform the co
 - Distinguish missing evidence from demonstrated error.
 - State novelty only against supplied literature; do not assert priority from memory.
 - For revisions, re-check the affected rows against the new versions and record prior statuses.
-- If a final-review JSON is requested, use `schema_version: 2` with actual `reviewer`, `reviewed_at`, `summary`, a nonempty `claims` list of `claim` / `support` pairs, and `subjects` of project-relative `path` plus actual `sha256`, binding `findings.md`, the manuscript under `paper/`, and inspected dependencies.
+- If a final-review JSON is requested, use `schema_version: 2` with actual `reviewer`, `reviewed_at`, `summary`, a nonempty `claims` list of `claim` / `support` pairs, and `subjects` of project-relative `path` plus actual `sha256`, binding `findings.md`, the manuscript under `paper/`, and inspected dependencies. Produce each `path` / `sha256` pair with `python3 scripts/research.py bind --project <project> --path <path> ...`; a copied or invented hash is a falsified binding.
