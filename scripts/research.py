@@ -1061,9 +1061,54 @@ def host_event(root, project, task_id, job_id, status, reason):
                                                       'job_id': job_id, 'reason': reason})
 
 
+GATE_FIXES = {'grant evidence': 'amend --kind grant', 'protocol': 'amend --kind protocol',
+              'goal dossier': 'amend --kind goal', 'evidence review': 'set-audit --kind evidence',
+              'final review': 'set-audit --kind final'}
+
+
+def binding_report(root, project):
+    """Read-only: every hash binding in the project and whether it still holds.
+
+    Bindings are global and silent: one edit breaks several gates at once and
+    nothing reports it until the next refusal, which is why a correction costs
+    three round trips. This lists them all so one command follows the edit.
+    """
+    state, _ = project_state(root, project)
+    rows = []
+
+    def add(binding, reference, task_status=None):
+        if not isinstance(reference, dict) or not nonempty(reference.get('path')):
+            return
+        row = {'binding': binding, 'path': reference['path'], 'recorded_sha256': reference.get('sha256'),
+               'task_status': task_status, 'fix': GATE_FIXES.get(binding, 'replan the task and reissue its packet')}
+        target = Path(project).resolve() / reference['path']
+        if target.is_file():
+            row['current_sha256'] = digest(target)
+            row['holds'] = row['current_sha256'] == reference.get('sha256')
+        else:
+            row.update(current_sha256=None, holds=False, detail='file is missing')
+        rows.append(row)
+
+    add('grant evidence', (state.get('grant') or {}).get('evidence'))
+    add('protocol', state.get('protocol'))
+    add('goal dossier', state.get('goal'))
+    add('evidence review', state.get('evidence_review'))
+    add('final review', state.get('review'))
+    for task_id, task in state['tasks'].items():
+        for assignment in task['assignments']:
+            for record in assignment['evidence']:
+                add(f'{task_id} assignment input', record, task['status'])
+        for record in task['submission']:
+            add(f'{task_id} submitted artifact', record, task['status'])
+    for reflection in state.get('reflections', []):
+        add('reflection artifact', reflection.get('artifact'))
+    return {'bindings': rows, 'broken': [row for row in rows if not row['holds']],
+            'note': 'Read only; amend rebinds one gate artifact and records old and new hashes'}
+
+
 def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hours=48):
     """Read-only loop supervision: silent tasks, receipt stalls, aged blockers,
-    brief drift and project silence. Reports only; it never changes state."""
+    brief drift, binding drift and project silence. Reports only; it never changes state."""
     state, _ = project_state(root, project)
     for name, value in (('task', hours), ('receipt', receipt_hours), ('blocker', blocker_hours),
                         ('silence', silence_hours)):
@@ -1097,6 +1142,11 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
         if (now - opened).total_seconds() > blocker_hours * 3600:
             problems.append({'reason': 'blocker-age',
                              'detail': f"{blocker['blocker_id']}: {blocker['text']}"})
+    for row in binding_report(root, project)['bindings']:
+        if row['holds'] or row.get('task_status') in ('completed', 'cancelled'):
+            continue
+        problems.append({'reason': 'binding-drift',
+                         'detail': f"{row['binding']}: {row['path']} no longer matches its recorded hash"})
     log = Path(project).resolve() / 'research-log.md'
     if not log.is_file():
         problems.append({'reason': 'brief-drift', 'detail': 'research-log.md is missing'})
@@ -1946,7 +1996,9 @@ CLI = (
      (('project', PROJECT), ('task', {}))),
     ('bind', 'Read-only: print path/sha256 pairs for audit subjects, manifests and reflections',
      (('project', PROJECT), ('path', MANY))),
-    ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, project silence',
+    ('bindings', 'Read-only: every hash binding and whether it still holds', (('project', PROJECT),)),
+    ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, binding drift, '
+              'project silence',
      (('project', PROJECT), ('hours', {'type': float, 'default': 2.0}),
       ('receipt-hours', {'type': float, 'default': 6.0}),
       ('blocker-hours', {'type': float, 'default': 24.0}),
@@ -2021,6 +2073,7 @@ CLI = (
 RUNNERS = {
     'skills': lambda a: all_skills(),
     'bind': lambda a: bind(a.project, a.path),
+    'bindings': lambda a: binding_report(ROOT, a.project),
     'next': lambda a: next_steps_for(ROOT, a.project, task_id=a.task),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
