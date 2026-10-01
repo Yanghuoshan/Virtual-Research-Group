@@ -1133,16 +1133,31 @@ def next_steps_for(root, project, task_id=None):
     def block(command, reason, *steps):
         blocked.append({'command': command, 'reason': reason, 'next': list(steps)})
 
+    def move(command, why, halt):
+        """One task move: legal as written, or blocked with the repair for the halt.
+
+        `halt` is None when the task may proceed, otherwise the pair
+        (reason, repair commands). It is decided once per task, so no move can be
+        listed as legal and blocked at the same time.
+        """
+        if halt is None:
+            allow(command, why)
+        else:
+            block(command, halt[0], *halt[1])
+
     if state['status'] == 'stopped':
         block('task, handoff, accept, task-status, phase, authorize, amend, blockers',
               'Project is stopped; task creation, handoffs, acceptance, task-status, phase and gate '
               'decisions are all closed', reactivate(project))
-        return {'status': state['status'], 'phase': state['phase'], 'legal': legal, 'blocked': blocked}
+        return {'status': state['status'], 'phase': state['phase'], 'mode': state['mode'],
+                'legal': legal, 'blocked': blocked,
+                'note': 'Read only; every listed command is still checked when it runs'}
 
     allow(f'status {option}', 'Read the current progress board')
     allow(f'next {option} [--task ID]', 'Re-read the legal moves after any decision')
     blockers = blocker_summary(state)
-    if freeze_active(state):
+    freeze = freeze_active(state)
+    if freeze:
         block('task, handoff, accept, task-status --status completed',
               f'A freeze-all blocker halts all task work ({blockers})',
               f'blockers {option} --resolve <blocker-id> --reason "..."')
@@ -1162,25 +1177,45 @@ def next_steps_for(root, project, task_id=None):
     if task_id is not None and not selected:
         block(f'next {option} --task {task_id}', f'Unknown task {task_id}', f'status {option}')
     for name, task in selected.items():
-        if task['status'] == 'planned':
-            allow(f'handoff {option} --task {name} --summary "..." --model <model> --evidence <paths> '
-                  '--outputs <new-paths>', f'{name} is planned; issue an assignment')
-            allow(f'task-status {option} --task {name} --status cancelled --reason "..."',
-                  f'{name} is no longer needed')
-        elif task['status'] == 'running':
-            allow(f'task-status {option} --task {name} --status submitted --executor-stopped '
-                  '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts')
+        status = task['status']
+        if status not in ('planned', 'running', 'submitted', 'blocked'):
+            continue  # a completed or cancelled task has no move left
+        # One blocker verdict for the whole task, so the board cannot offer a move
+        # here that the gate refuses when it runs.
+        if freeze:
+            halt = (f'Project is frozen by a freeze-all blocker ({blockers}); resolve it before any task work',
+                    (f'blockers {option} --resolve <blocker-id> --reason "..."',))
+        elif not task_may_proceed(state, task.get('resolves')):
+            halt = (f'Open blockers halt unrelated work ({blockers})',
+                    (f'blockers {option} --resolve <blocker-id> --reason "..."',
+                     f'blockers {option} --edit <blocker-id> --text "..." --reason "..."'))
+        else:
+            halt = None
+        if status == 'planned':
+            move(f'handoff {option} --task {name} --summary "..." --model <model> --evidence <paths> '
+                 '--outputs <new-paths>', f'{name} is planned; issue an assignment', halt)
+        elif status == 'running':
+            move(f'task-status {option} --task {name} --status submitted --executor-stopped '
+                 '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts', halt)
             block(f'handoff {option} --task {name}',
                   f'{name} is running; one task has at most one executor',
                   f'task-status {option} --task {name} --status blocked --executor-stopped --reason "..."')
-        elif task['status'] == 'submitted':
-            allow(f'task-status {option} --task {name} --status completed --reason "..."',
-                  f'{name} is submitted; complete it after inspecting the artifacts')
-            allow(f'task-status {option} --task {name} --status planned --reason "..."',
-                  f'{name} needs bounded rework; issue a new packet with new output paths')
-        elif task['status'] == 'blocked':
-            allow(f'task-status {option} --task {name} --status planned --reason "..."',
-                  f'{name} is blocked; move it back to planned once the blocker is resolved')
+        elif status == 'submitted':
+            move(f'task-status {option} --task {name} --status completed --reason "..."',
+                 f'{name} is submitted; complete it after inspecting the artifacts', halt)
+            move(f'task-status {option} --task {name} --status planned --reason "..."',
+                 f'{name} needs bounded rework; issue a new packet with new output paths', halt)
+        else:
+            move(f'task-status {option} --task {name} --status planned --reason "..."',
+                 f'{name} is blocked; move it back to planned once the blocker is resolved', halt)
+        # Cancellation is legal from every non-terminal state; for a running task it
+        # also releases the held phase, so it confirms the executor stopped. Only a
+        # freeze-all halts it: cancelling is not work on the blocked subject.
+        stopped_flag = ' --executor-stopped' if status == 'running' else ''
+        why = (f'{name} is running; cancel it and reconcile the executor if the work is no longer needed'
+               if status == 'running' else f'{name} is no longer needed')
+        move(f'task-status {option} --task {name} --status cancelled{stopped_flag} --reason "..."',
+             why, halt if freeze else None)
     if state['active_tasks']:
         block(f'phase {option} --to <phase>', 'A running executor holds the phase decision',
               f'task-status {option} --task {state["active_tasks"][0]} --status submitted '

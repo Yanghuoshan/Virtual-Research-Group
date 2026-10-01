@@ -157,15 +157,74 @@ class GateGuidanceTests(unittest.TestCase):
         self.assertEqual(board['legal'], [])
         self.assertEqual(len(board['blocked']), 1)
         self.assertIn('--to active', board['blocked'][0]['next'][0])
+        # A consumer reads mode and note from every board, stopped ones included.
+        self.assertEqual(sorted(board), ['blocked', 'legal', 'mode', 'note', 'phase', 'status'])
+
+    def cancels(self, board, task_id='t1'):
+        """The cancellation moves the board offers for one task."""
+        return [entry['command'] for entry in board['legal']
+                if '--status cancelled' in entry['command'] and f'--task {task_id}' in entry['command']]
+
+    def test_next_offers_cancellation_from_every_open_task_state(self):
+        """Cancellation is legal from planned, running, submitted and blocked alike."""
+        self.assertEqual(len(self.cancels(self.tool.next_steps_for(ROOT, self.project, task_id='t1'))), 1)
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        # A running task holds the phase, so cancelling it also confirms the executor stopped.
+        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
+        self.assertEqual(self.cancels(board),
+                         [f'task-status --project {self.project} --task t1 --status cancelled '
+                          '--executor-stopped --reason "..."'])
+        output = self.project / 'hypotheses/t1-v1.md'
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text('v1 finding')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Artifacts returned',
+                             ['hypotheses/t1-v1.md'], executor_stopped=True)
+        self.assertEqual(len(self.cancels(self.tool.next_steps_for(ROOT, self.project, task_id='t1'))), 1)
+        # A second task reaches blocked through the same gates: a running executor, then blocked.
+        self.create('t2')
+        packet = self.tool.handoff(ROOT, self.project, 't2', 'Work the evidence', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t2-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:gate-2'))
+        self.tool.update_task(ROOT, self.project, 't2', 'blocked', 'Executor stopped early', [],
+                              executor_stopped=True)
+        self.assertEqual(len(self.cancels(self.tool.next_steps_for(ROOT, self.project, task_id='t2'), 't2')), 1)
 
     def test_next_explains_why_a_running_task_refuses_a_new_packet(self):
         packet = self.tool.handoff(ROOT, self.project, 't1', 'Work the evidence', ['research-brief.md'],
                                    model='current', outputs=['hypotheses/t1-v1.md'])
         self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
         board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
-        blocked = ' '.join(entry['reason'] for entry in board['blocked'])
-        self.assertIn('running', blocked)
-        self.assertIn('phase', ' '.join(entry['command'] for entry in board['blocked']))
+        # The phase block names this task too, so the assertion picks out the packet
+        # refusal itself instead of matching any entry that mentions the task.
+        refusal = [entry for entry in board['blocked'] if entry['command'].startswith('handoff ')]
+        self.assertEqual(len(refusal), 1, board['blocked'])
+        self.assertIn('--task t1', refusal[0]['command'])
+        self.assertIn('one task has at most one executor', refusal[0]['reason'])
+        legal = ' '.join(entry['command'] for entry in board['legal'])
+        self.assertIn(f'task-status --project {self.project} --task t1 --status submitted', legal)
+
+    def test_next_blocks_the_task_moves_an_open_blocker_halts(self):
+        self.tool.update_blockers(ROOT, self.project, add='Human decision needed', reason='Approval missing')
+        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
+        legal = ' '.join(entry['command'] for entry in board['legal'])
+        self.assertNotIn('handoff ', legal, 'a task that resolves no open blocker must not be offered')
+        halted = [entry for entry in board['blocked'] if '--task t1' in entry['command']]
+        self.assertEqual(len(halted), 1, board['blocked'])
+        self.assertIn('Open blockers halt unrelated work', halted[0]['reason'])
+        self.assertIn(f'blockers --project {self.project} --resolve', halted[0]['next'][0])
+        # Cancellation is not blocked work, so an ordinary blocker leaves it legal.
+        self.assertEqual(len(self.cancels(board)), 1)
+
+    def test_next_offers_no_task_move_under_a_freeze_all_blocker(self):
+        self.tool.update_blockers(ROOT, self.project, add='Stop all work', reason='Emergency', freeze_all=True)
+        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
+        self.assertEqual([], [entry['command'] for entry in board['legal'] if '--task t1' in entry['command']])
+        halted = [entry for entry in board['blocked'] if '--task t1' in entry['command']]
+        self.assertEqual(len(halted), 2, board['blocked'])
+        for entry in halted:
+            self.assertIn('freeze-all', entry['reason'])
+            self.assertIn(f'blockers --project {self.project} --resolve', entry['next'][0])
 
     def test_status_and_brief_name_the_human_action_the_project_waits_on(self):
         self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Awaiting approval')
