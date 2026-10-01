@@ -48,12 +48,39 @@ def require(condition, message):
         raise ValueError(message)
 
 
+class Refusal(ValueError):
+    """A gate refusal that names the repair, not only the rule that was hit.
+
+    The gates are stateful and order sensitive, so a bare rule statement costs a
+    round trip to locate the state the command was actually issued in. Steps are
+    executable commands, never prose advice.
+    """
+
+    def __init__(self, message, *next_steps):
+        self.message = message
+        self.next_steps = [step for step in next_steps if step]
+        super().__init__(message + ''.join(f' Next: {step}.' for step in self.next_steps))
+
+
+def refuse(condition, message, *next_steps):
+    """Like require, but the refusal carries the commands that clear the gate."""
+    if not condition:
+        raise Refusal(message, *next_steps)
+
+
+def reactivate(project):
+    """The one command that reopens every gate of a stopped project."""
+    return (f'project-status --project {project} --to active '
+            '--reason "<why the project resumes>"')
+
+
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip())
 
 
 def iso_timestamp(value, label):
-    require(isinstance(value, str) and ISO_TIMESTAMP.fullmatch(value), f'{label} must be an ISO 8601 timestamp')
+    refuse(isinstance(value, str) and ISO_TIMESTAMP.fullmatch(value),
+           f'{label} must be an ISO 8601 timestamp, for example 2099-01-01T00:00:00Z')
     return value
 
 
@@ -730,7 +757,8 @@ def save_decision(project, state, expected_hash, event):
 def create_task(root, project, task_id, objective, *, activity, skill, role, acceptance, independent_review=False,
                 role_prompt_text=None, resolves=None, tools=None):
     state, fingerprint = project_state(root, project)
-    require(state['status'] == 'active', 'Project is stopped; reactivate it before creating tasks')
+    refuse(state['status'] == 'active', 'Project is stopped; reactivate it before creating tasks',
+           reactivate(project))
     require(state['phase'] != 'complete', 'Completed research reopens only through a new scope decision')
     resolves = list(resolves or [])
     open_ids = open_blocker_ids(state)
@@ -828,7 +856,8 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
     require(message is None, message)
-    require(task['status'] == 'planned', 'Task must be planned before assignment')
+    refuse(task['status'] == 'planned', 'Task must be planned before assignment',
+           f'status --project {project}', f'next --project {project} --task {task_id}')
     require(nonempty(summary) and nonempty(model), 'Assignment rationale and model are required')
     require(isinstance(evidence, list) and evidence, 'At least one evidence file is required')
     session = session_request(session_mode, session_reason, resume_session_id, task['independent_review'])
@@ -865,9 +894,11 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     state, fingerprint = project_state(root, project)
     require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
     require(packet.get('schema_version') == 8 and receipt.get('schema_version') == 8, 'Unknown packet or receipt schema')
-    require(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch')
-    require(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
-            'Packet is stale: state revision or hash changed')
+    refuse(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch',
+           f'handoff --project {project} --task {packet.get("task_id")} ... and save the new packet')
+    refuse(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
+           'Packet is stale: state revision or hash changed',
+           f'handoff --project {project} --task {packet.get("task_id")} ... and save the new packet')
     task_id = packet.get('task_id')
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
@@ -1204,7 +1235,8 @@ def open_project(root, project):
     project. Only `project-status` can move a stopped project back to active.
     """
     state, fingerprint = project_state(root, project)
-    require(state['status'] == 'active', 'Project is stopped; reactivate it before recording further decisions')
+    refuse(state['status'] == 'active', 'Project is stopped; reactivate it before recording further decisions',
+           reactivate(project))
     return state, fingerprint
 
 
@@ -1243,21 +1275,32 @@ def authorize(root, project, *, mode, reason, evidence=(), services=(), operatio
 
 def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
     state, _ = project_state(root, project)
-    require(state['status'] == 'active' and task_id in state['active_tasks'],
-            'Tool access requires an active assignment')
+    refuse(state['status'] == 'active' and task_id in state['active_tasks'],
+           'Tool access requires an active assignment',
+           f'handoff --project {project} --task {task_id} ...',
+           f'accept --project {project} --packet <packet>',
+           f'next --project {project} --task {task_id}')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
     require(message is None, message)
     assignment = task['assignments'][-1]
-    require(packet_id == assignment['packet_id'], 'Tool request does not match the active packet')
+    refuse(packet_id == assignment['packet_id'], 'Tool request does not match the active packet',
+           f'handoff --project {project} --task {task_id} ... and accept the new packet')
     grant = verify_grant(project, state)
-    require(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed')
-    require(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
-            'Tool request exceeds approved scope')
-    require(any(assigned['server'] == server and assigned['operation'] == operation
+    refuse(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed',
+           f'amend --project {project} --kind grant --reason "<why the approval artifact changed>"',
+           f'task-status --project {project} --task {task_id} --status planned --reason "reissue packet"')
+    refuse(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
+           'Tool request exceeds approved scope',
+           f'authorize --project {project} --mode research --services {"|".join(grant["services"])} '
+           f'--operations {"|".join(grant["operations"])} --scope "{grant["scope"]}" ...')
+    refuse(any(assigned['server'] == server and assigned['operation'] == operation
                 for assigned in task.get('tools') or []),
-            f'Tool {server}:{operation} was not assigned to task {task_id}; '
-            'assign channels at task creation with --tool server:operation')
+           f'Tool {server}:{operation} was not assigned to task {task_id}; '
+           'assign channels at task creation with --tool server:operation',
+           f'amend --project {project} --kind tools --task {task_id} --tool {server}:{operation} '
+           '--reason "..." while the task is planned',
+           f'task --project {project} --task <new-id> ... --tool {server}:{operation}')
     semantics = operation_semantics(project, server, operation)
     if semantics['classification'] != 'read':
         require(state['mode'] == 'research' and task['activity'] == 'experiment',
