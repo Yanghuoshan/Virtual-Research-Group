@@ -1071,9 +1071,19 @@ AMEND_KINDS = {'grant evidence': ('grant', '<why the approval artifact changed>'
 AUDIT_KINDS = {'evidence review': ('evidence', 'verified'), 'final review': ('final', 'passed')}
 
 
-def binding_fix(project, binding, path, task_id=None):
-    """The one command that rebinds a broken binding, at the project that owns it."""
+TERMINAL_TASK_STATES = ('completed', 'cancelled')
+
+
+def binding_fix(project, binding, path, task_id=None, task_status=None):
+    """The one command that rebinds a broken binding, at the project that owns it.
+
+    A completed or cancelled task is terminal: no command can repair its
+    bindings, so the row admits that instead of naming a move the gate would
+    refuse the moment the core issues it.
+    """
     option = f'--project {project}'
+    if task_id is not None and task_status in TERMINAL_TASK_STATES:
+        return None
     if binding in AMEND_KINDS:
         kind, why = AMEND_KINDS[binding]
         return f'amend {option} --kind {kind} --reason "{why}"'
@@ -1126,7 +1136,7 @@ def binding_report(root, project, state=None):
             return
         row = {'binding': binding, 'path': reference['path'], 'recorded_sha256': reference.get('sha256'),
                'task_status': task_status,
-               'fix': binding_fix(project, binding, reference['path'], task_id)}
+               'fix': binding_fix(project, binding, reference['path'], task_id, task_status)}
         row.update(binding_measurement(project, reference['path'], reference.get('sha256')))
         rows.append(row)
 

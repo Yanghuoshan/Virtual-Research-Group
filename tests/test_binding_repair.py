@@ -226,19 +226,36 @@ class BindingRepairTests(unittest.TestCase):
         self.assertEqual(sorted(fix_of),
                          ['evidence review', 'final review', 'goal dossier', 'grant evidence', 'protocol',
                           'reflection artifact', 'run assignment input', 'run submitted artifact'])
-        for binding, fix in fix_of.items():
+        # A completed task is terminal: no command can repair its bindings, and naming
+        # one would be refused the moment the core issued it.
+        for binding in ('run assignment input', 'run submitted artifact'):
+            with self.subTest(binding=binding):
+                self.assertIsNone(fix_of[binding], f'{binding} must not promise a repair')
+        commands = {name: fix for name, fix in fix_of.items() if fix is not None}
+        for binding, fix in commands.items():
             with self.subTest(binding=binding):
                 self.assertIn(f'--project {self.project}', fix, f'{binding} names no project to repair')
-        for binding in ('run assignment input', 'run submitted artifact', 'reflection artifact'):
-            with self.subTest(binding=binding):
-                self.assertIn('--task run', fix_of[binding], f'{binding} names no task to repair')
-        self.assertEqual(fix_of['reflection artifact'],
+        self.assertIn('--task run', commands['reflection artifact'])
+        self.assertEqual(commands['reflection artifact'],
                          f'reflect --project {self.project} --task run --path reports/reflection-v1.json '
                          '--reason "<record a new versioned report>"')
-        self.assertEqual(fix_of['evidence review'],
+        self.assertEqual(commands['evidence review'],
                          f'set-audit --project {self.project} --kind evidence '
                          '--path reviews/evidence-audit.json --status verified --reason "..."')
-        self.assertRealCommands(fix_of.values())
+        self.assertRealCommands(commands.values())
+        # A task that can still be replanned does get the command naming it.
+        self.tool.create_task(ROOT, self.project, 'sub2', 'Replannable work', activity='analysis',
+                              skill='brainstorming-research-ideas', role='strategist',
+                              acceptance='Each explanation has a falsifier')
+        self.tool.assign(ROOT, self.project, 'sub2', 'Work the evidence', ['research-brief.md'],
+                         model='current', outputs=['hypotheses/sub2-v1.md'],
+                         session_mode='current', session_reason='Small bounded task')
+        fix_of = {row['binding']: row['fix']
+                  for row in self.tool.binding_report(ROOT, self.project)['bindings']}
+        self.assertEqual(fix_of['sub2 assignment input'],
+                         f'task-status --project {self.project} --task sub2 --status planned '
+                         '--reason "reissue the packet"')
+        self.assertRealCommands([fix_of['sub2 assignment input']])
 
     def test_an_unreadable_bound_file_is_reported_instead_of_raising(self):
         """A watchdog degrades: a file it cannot read is reported, never raised."""
