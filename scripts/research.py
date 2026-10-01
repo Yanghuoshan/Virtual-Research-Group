@@ -1116,6 +1116,11 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
             'note': 'Read only; host and core must reconcile real job status'}
 
 
+# Every board carries this note: it is a read-only forecast of the gates, and a
+# command listed as legal still runs every one of them when it is actually issued.
+BOARD_NOTE = 'Read only; every listed command is still checked when it runs'
+
+
 def next_steps_for(root, project, task_id=None):
     """Read-only: the commands legal right now, and the repair for everything else.
 
@@ -1136,7 +1141,7 @@ def next_steps_for(root, project, task_id=None):
     def move(command, why, halt):
         """One task move: legal as written, or blocked with the repair for the halt.
 
-        `halt` is None when the task may proceed, otherwise the pair
+        `halt` is None when no blocker gate applies to the move, otherwise the pair
         (reason, repair commands). It is decided once per task, so no move can be
         listed as legal and blocked at the same time.
         """
@@ -1145,13 +1150,16 @@ def next_steps_for(root, project, task_id=None):
         else:
             block(command, halt[0], *halt[1])
 
+    def board():
+        """The five fields every board reports, whichever branch returns it."""
+        return {'status': state['status'], 'phase': state['phase'], 'mode': state['mode'],
+                'legal': legal, 'blocked': blocked, 'note': BOARD_NOTE}
+
     if state['status'] == 'stopped':
         block('task, handoff, accept, task-status, phase, authorize, amend, blockers',
               'Project is stopped; task creation, handoffs, acceptance, task-status, phase and gate '
               'decisions are all closed', reactivate(project))
-        return {'status': state['status'], 'phase': state['phase'], 'mode': state['mode'],
-                'legal': legal, 'blocked': blocked,
-                'note': 'Read only; every listed command is still checked when it runs'}
+        return board()
 
     allow(f'status {option}', 'Read the current progress board')
     allow(f'next {option} [--task ID]', 'Re-read the legal moves after any decision')
@@ -1173,15 +1181,25 @@ def next_steps_for(root, project, task_id=None):
         allow(f'task {option} --task <id> --objective "..." --activity analysis --skill <name> '
               '--role <id> --acceptance "..."', 'Register a bounded task')
 
+    # update_task applies no blocker gate to a status move; the only one it refuses
+    # is completion, and only under an explicit freeze-all emergency stop. The halt
+    # is derived from freeze_active, the very predicate update_task uses, so the
+    # board cannot drift away from the gate again: an ordinary blocker halts *new*
+    # work, while finishing work already returned is deliberately allowed so a
+    # foreign blocker cannot freeze it.
+    completion_halt = None
+    if freeze_active(state):
+        completion_halt = (f'Project is frozen by a freeze-all blocker ({blockers}); resolve it before completion',
+                           (f'blockers {option} --resolve <blocker-id> --reason "..."',))
     selected = state['tasks'] if task_id is None else {k: v for k, v in state['tasks'].items() if k == task_id}
     if task_id is not None and not selected:
         block(f'next {option} --task {task_id}', f'Unknown task {task_id}', f'status {option}')
     for name, task in selected.items():
-        status = task['status']
-        if status not in ('planned', 'running', 'submitted', 'blocked'):
+        task_status = task['status']
+        if task_status not in ('planned', 'running', 'submitted', 'blocked'):
             continue  # a completed or cancelled task has no move left
-        # One blocker verdict for the whole task, so the board cannot offer a move
-        # here that the gate refuses when it runs.
+        # A handoff opens new work, so it is the one move here the blocker gate
+        # governs: gate_task admits it for a task resolving an open blocker only.
         if freeze:
             halt = (f'Project is frozen by a freeze-all blocker ({blockers}); resolve it before any task work',
                     (f'blockers {option} --resolve <blocker-id> --reason "..."',))
@@ -1191,30 +1209,32 @@ def next_steps_for(root, project, task_id=None):
                      f'blockers {option} --edit <blocker-id> --text "..." --reason "..."'))
         else:
             halt = None
-        if status == 'planned':
+        if task_status == 'planned':
             move(f'handoff {option} --task {name} --summary "..." --model <model> --evidence <paths> '
                  '--outputs <new-paths>', f'{name} is planned; issue an assignment', halt)
-        elif status == 'running':
+        elif task_status == 'running':
+            # Returning artifacts is not new work, so no blocker halts it; a second
+            # handoff is refused for a different reason entirely.
             move(f'task-status {option} --task {name} --status submitted --executor-stopped '
-                 '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts', halt)
+                 '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts', None)
             block(f'handoff {option} --task {name}',
                   f'{name} is running; one task has at most one executor',
                   f'task-status {option} --task {name} --status blocked --executor-stopped --reason "..."')
-        elif status == 'submitted':
+        elif task_status == 'submitted':
             move(f'task-status {option} --task {name} --status completed --reason "..."',
-                 f'{name} is submitted; complete it after inspecting the artifacts', halt)
+                 f'{name} is submitted; complete it after inspecting the artifacts', completion_halt)
             move(f'task-status {option} --task {name} --status planned --reason "..."',
-                 f'{name} needs bounded rework; issue a new packet with new output paths', halt)
+                 f'{name} needs bounded rework; issue a new packet with new output paths', None)
         else:
             move(f'task-status {option} --task {name} --status planned --reason "..."',
-                 f'{name} is blocked; move it back to planned once the blocker is resolved', halt)
+                 f'{name} is blocked; move it back to planned once the blocker is resolved', None)
         # Cancellation is legal from every non-terminal state, a freeze-all included:
         # the freeze stops work, and update_task freezes completion only, while
         # cancelling stale work is how the project clears the stop. For a running
         # task it also releases the held phase, so it confirms the executor stopped.
-        stopped_flag = ' --executor-stopped' if status == 'running' else ''
+        stopped_flag = ' --executor-stopped' if task_status == 'running' else ''
         why = (f'{name} is running; cancel it and reconcile the executor if the work is no longer needed'
-               if status == 'running' else f'{name} is no longer needed')
+               if task_status == 'running' else f'{name} is no longer needed')
         move(f'task-status {option} --task {name} --status cancelled{stopped_flag} --reason "..."', why, None)
     if state['active_tasks']:
         block(f'phase {option} --to <phase>', 'A running executor holds the phase decision',
@@ -1229,9 +1249,23 @@ def next_steps_for(root, project, task_id=None):
     else:
         allow(f'phase {option} --to {"|".join(core_phases(root)[state["phase"]]["next"])} '
               '--reason "..." --evidence <paths>', 'A separate core phase decision')
-    return {'status': state['status'], 'phase': state['phase'], 'mode': state['mode'],
-            'legal': legal, 'blocked': blocked,
-            'note': 'Read only; every listed command is still checked when it runs'}
+    return board()
+
+
+def grant_expiry(grant):
+    """The grant expiry as a comparable datetime, or None when there is no usable one.
+
+    `authorize` validates the timestamp, but a hand-edited grant is read back by
+    every board and brief without validation, so an expiry that is not a
+    recognizable ISO 8601 value is reported as absent instead of parsed and raised.
+    """
+    value = grant.get('expires_at') if isinstance(grant, dict) else None
+    if not nonempty(value) or not ISO_TIMESTAMP.fullmatch(value):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
 
 
 def waiting_on(state):
@@ -1245,8 +1279,16 @@ def waiting_on(state):
         return 'human decision: reactivate the project (project-status --to active)'
     grant = state.get('grant')
     if isinstance(grant, dict) and nonempty(grant.get('expires_at')):
-        expiry = datetime.fromisoformat(grant['expires_at'].replace('Z', '+00:00'))
-        if expiry <= datetime.now(timezone.utc):
+        expiry = grant_expiry(grant)
+        if expiry is None:
+            # The grant claims an expiry that cannot be read, so it claims nothing:
+            # a hand-edited value must not make every board and brief unreadable.
+            return None
+        try:
+            expired = expiry <= datetime.now(timezone.utc)
+        except TypeError:
+            return None
+        if expired:
             return 'human approval: the grant expired; re-authorize with a cited approval artifact'
     if state['blockers']:
         return f'human or task action: {len(state["blockers"])} open blocker(s)'
@@ -1777,13 +1819,18 @@ def render_brief(state, note=None):
 
 
 def brief_lines(text):
-    """The mechanical lines of a brief block: everything except the timestamp and the core note."""
+    """The mechanical lines of a brief block: the state it renders, not what shifts on its own.
+
+    The timestamp and the core note change on every rewrite, and the waiting-on
+    line is derived from state the other lines already carry, so all three are
+    excluded: only a real state change shows up as drift.
+    """
     start, end = '<!-- brief:start -->', '<!-- brief:end -->'
     if text.count(start) != 1 or text.count(end) != 1:
         return None
     block = text.split(start, 1)[1].split(end, 1)[0]
-    return [line for line in block.splitlines()
-            if line.strip() and not line.startswith('- **Updated:**') and not line.startswith('- **Next:**')]
+    volatile = ('- **Updated:**', '- **Next:**', '- **Waiting on:**')
+    return [line for line in block.splitlines() if line.strip() and not line.startswith(volatile)]
 
 
 def write_brief(root, project, note=None):
