@@ -1405,6 +1405,14 @@ def waiting_on(state):
     return None
 
 
+# The core rewrites these root documents as a direct consequence of deciding: the
+# brief on every decision, findings on every acceptance. Binding one as a frozen
+# contract input made completion unsatisfiable by construction, because recording
+# the result is exactly what invalidated the input. They are snapshot inputs: the
+# hash is taken at assignment and drift is recorded at completion, never refused.
+CORE_MUTABLE_RECORDS = ('findings.md', 'research-log.md', 'research-brief.md')
+
+
 def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False, verdict=None):
     state, fingerprint = open_project(root, project)
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
@@ -1424,14 +1432,16 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
             state['active_tasks'].remove(task_id)
     require(isinstance(evidence, list), 'Evidence must be a list')
     records = [evidence_record(project, path) for path in evidence]
-    auto_resolved, declared_already_closed = [], []
+    auto_resolved, drift, declared_already_closed = [], [], []
     if status in ('submitted', 'blocked') and task['status'] == 'running':
         if status == 'submitted':
             require(records, 'Submission requires output evidence')
         allowed = task['assignments'][-1]['allowed_outputs']
         for record in records:
-            require(any(record['path'] == scope or (scope.endswith('/') and record['path'].startswith(scope))
-                        for scope in allowed), f'Unassigned run artifact: {record["path"]}')
+            refuse(any(record['path'] == scope or (scope.endswith('/') and record['path'].startswith(scope))
+                       for scope in allowed), f'Unassigned run artifact: {record["path"]}',
+                   f'assign an output scope containing it at handoff time; this attempt holds '
+                   f'{", ".join(allowed)}')
         if status == 'submitted':
             task['submission'] = records
     if status == 'completed':
@@ -1443,7 +1453,22 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
             require(assignment.get('execution_contract') == execution_contract(state),
                     'Execution contract changed; reconcile the old run before completing')
         for record in assignment['evidence']:
-            verify_reference(project, record, 'Task input')
+            if record['path'] in CORE_MUTABLE_RECORDS:
+                target = local_path(project, record['path'])
+                if not target.is_file() or digest(target, cached=False) != record['sha256']:
+                    drift.append(record['path'])
+                continue
+            try:
+                verify_reference(project, record, 'Task input')
+            except ValueError:
+                current_path = local_path(project, record['path'])
+                current = digest(current_path, cached=False) if current_path.is_file() else 'missing'
+                raise Refusal(f'Task input {record["path"]} changed since this assignment was accepted '
+                              f'({str(record["sha256"])[:12]} -> {current[:12]})',
+                              f'task-status --project {project} --task {task_id} --status planned '
+                              '--reason "reissue the packet"',
+                              f'task-status --project {project} --task {task_id} --status cancelled '
+                              '--reason "..." and create a new task when the objective changed') from None
         activity_evidence(project, state, task['activity'], list(assignment['evidence']), check_expiry=False)
         # Completion records finished work: foreign open blockers never freeze it,
         # but an explicit freeze-all emergency stop does.
@@ -1462,6 +1487,7 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
     return save_decision(project, state, fingerprint, {'action': 'task-' + status, 'task_id': task_id,
                                                       'reason': reason.strip(), 'evidence': records,
                                                       'auto_resolved': auto_resolved,
+                                                      'input_drift': drift,
                                                       'declared_already_closed': declared_already_closed,
                                                       'verdict': verdict})
 
@@ -1676,7 +1702,9 @@ def set_audit(root, project, *, kind, path, status, reason):
     relative = resolved.relative_to(Path(project).resolve())
     require(not resolved.is_symlink() and resolved.is_file() and resolved.stat().st_size > 0,
             f'Missing or empty audit record: {path}')
-    require(relative.parts[0] == 'reviews', 'Audit records belong under reviews/')
+    refuse(relative.parts[0] == 'reviews', 'Audit records belong under reviews/',
+           f'write it from templates/evidence-audit.json to reviews/evidence-audit-v1.json, then '
+           f'bind --project {project} --path findings.md <primary artifacts> for its subjects')
     reference = {'path': str(relative), 'sha256': digest(resolved)}
     label = 'Evidence review' if kind == 'evidence' else 'Final review'
     if status in ('verified', 'passed'):

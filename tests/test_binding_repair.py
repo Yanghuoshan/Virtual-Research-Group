@@ -1,5 +1,6 @@
 """Hash bindings are visible and repairable instead of silent."""
 
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -296,3 +297,66 @@ class BindingRepairTests(unittest.TestCase):
         self.assertIsNone(row['recorded_sha256'])
         self.assertFalse(row['holds'])
         self.assertEqual(row['detail'], 'no recorded hash')
+
+    def receipt(self, packet, session_id='host:s1', **changes):
+        """A host receipt for one packet, computed the way the tool recomputes it."""
+        result = dict(schema_version=8, packet_id=packet['packet_id'], task_id=packet['task_id'],
+                      source_revision=packet['source_revision'], accepted=True,
+                      accepted_at='2026-01-01T00:00:00+00:00',
+                      actual_role=packet['target_role']['id'], actual_model='provider/model-a',
+                      actual_session_mode=packet['session']['mode'], actual_session_id=session_id,
+                      session_isolation_verified=packet['session']['mode'] == 'fresh',
+                      session_notes='Host execution identity and history verified',
+                      state_hash_checked=True, core_hash_checked=True, skill_hash_checked=True,
+                      evidence_hashes_checked=True)
+        result['packet_sha256'] = hashlib.sha256(json.dumps(
+            packet, sort_keys=True, ensure_ascii=False, separators=(',', ':'),
+            allow_nan=False).encode('utf-8')).hexdigest()
+        result.update(changes)
+        return result
+
+    def run_task(self):
+        self.tool.create_task(ROOT, self.project, 't1', 'Compare explanations', activity='analysis',
+                              skill='brainstorming-research-ideas', role='strategist',
+                              acceptance='Each explanation has a falsifier')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Work the evidence', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t1-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:s1'))
+        return packet
+
+    def test_core_record_input_drift_is_recorded_not_refused(self):
+        # findings.md is the sink the core writes when it accepts results, so a
+        # completion check demanding it stay byte-identical is unsatisfiable.
+        self.tool.create_task(ROOT, self.project, 't9', 'Synthesize accepted findings',
+                              activity='analysis', skill='results-synthesis', role='analyst',
+                              acceptance='Bounded synthesis')
+        packet = self.tool.handoff(ROOT, self.project, 't9', 'Synthesize', ['findings.md'],
+                                   model='current', outputs=['reports/synthesis-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:s9'))
+        self.write('reports/synthesis-v1.md', 'Synthesis with limits')
+        self.write('findings.md', 'Accepted finding recorded by the core')
+        state = self.tool.update_task(ROOT, self.project, 't9', 'submitted', 'Returned synthesis',
+                                      ['reports/synthesis-v1.md'], executor_stopped=True)
+        state = self.tool.update_task(ROOT, self.project, 't9', 'completed', 'Core inspected it', [])
+        self.assertEqual(state['tasks']['t9']['status'], 'completed')
+        self.assertIn('findings.md', state['history'][-1].get('input_drift', []))
+
+    def test_changed_versioned_input_is_refused_with_a_repair(self):
+        self.run_task()
+        # A running task cannot take a second packet, so pass one is returned and the
+        # task replanned: the reissue is what binds the versioned input of pass two.
+        self.write('hypotheses/t1-v1.md', 'Mechanism and falsifier')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Returned', ['hypotheses/t1-v1.md'],
+                              executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 't1', 'planned', 'Rework requested', [])
+        evidence = self.write('literature/review-v1.md', 'Sourced notes')
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Work the evidence', [evidence],
+                                   model='current', outputs=['hypotheses/t1-v2.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:s2'))
+        self.write(evidence, 'Sourced notes, revised')
+        self.write('hypotheses/t1-v2.md', 'Mechanism and falsifier')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Returned', ['hypotheses/t1-v2.md'],
+                              executor_stopped=True)
+        with self.assertRaisesRegex(ValueError, 'Next:') as raised:
+            self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Core inspected it', [])
+        self.assertIn('task-status', str(raised.exception))
