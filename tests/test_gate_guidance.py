@@ -165,6 +165,12 @@ class GateGuidanceTests(unittest.TestCase):
         return [entry['command'] for entry in board['legal']
                 if '--status cancelled' in entry['command'] and f'--task {task_id}' in entry['command']]
 
+    def assertNoOverlap(self, board):
+        """No command may be offered and refused at once; the board would contradict itself."""
+        legal = [entry['command'] for entry in board['legal']]
+        blocked = [entry['command'] for entry in board['blocked']]
+        self.assertEqual([], [command for command in legal if command in blocked], board)
+
     def test_next_offers_cancellation_from_every_open_task_state(self):
         """Cancellation is legal from planned, running, submitted and blocked alike."""
         self.assertEqual(len(self.cancels(self.tool.next_steps_for(ROOT, self.project, task_id='t1'))), 1)
@@ -216,15 +222,56 @@ class GateGuidanceTests(unittest.TestCase):
         # Cancellation is not blocked work, so an ordinary blocker leaves it legal.
         self.assertEqual(len(self.cancels(board)), 1)
 
-    def test_next_offers_no_task_move_under_a_freeze_all_blocker(self):
+    def test_next_blocks_the_phase_move_while_a_blocker_is_open(self):
+        """transition_phase refuses under an open blocker, so the board must not offer it."""
+        self.tool.update_blockers(ROOT, self.project, add='Human decision needed', reason='Approval missing')
+        with self.assertRaisesRegex(ValueError, 'Resolve project blockers before changing phase'):
+            self.tool.transition_phase(ROOT, self.project, 'ideation', 'Scope is bounded', ['research-brief.md'])
+        board = self.tool.next_steps_for(ROOT, self.project)
+        self.assertNoOverlap(board)
+        legal = ' '.join(entry['command'] for entry in board['legal'])
+        self.assertNotIn('phase ', legal, 'an open blocker closes the phase decision too')
+        halted = [entry for entry in board['blocked'] if entry['command'].startswith('phase ')]
+        self.assertEqual(len(halted), 1, board['blocked'])
+        self.assertIn(f'blockers --project {self.project} --resolve', halted[0]['next'][0])
+        self.assertIn(f'blockers --project {self.project} --edit', ' '.join(halted[0]['next']))
+        # The repair is real: resolving the blocker is what makes the move legal again.
+        self.tool.update_blockers(ROOT, self.project, resolve='b1', reason='Approval recorded')
+        board = self.tool.next_steps_for(ROOT, self.project)
+        self.assertIn(f'phase --project {self.project} --to ideation',
+                      ' '.join(entry['command'] for entry in board['legal']))
+
+    def test_next_offers_only_cancellation_under_a_freeze_all_blocker(self):
+        """A freeze halts work, not the escape: cancelling stale work clears the stop."""
+        # A submitted task is where completion is offered, so it pins both halves:
+        # the freeze stops completion and rework, never cancellation.
+        self.create('t2')
+        packet = self.tool.handoff(ROOT, self.project, 't2', 'Work the evidence', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t2-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:gate-2'))
+        output = self.project / 'hypotheses/t2-v1.md'
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text('v2 finding')
+        self.tool.update_task(ROOT, self.project, 't2', 'submitted', 'Artifacts returned',
+                             ['hypotheses/t2-v1.md'], executor_stopped=True)
         self.tool.update_blockers(ROOT, self.project, add='Stop all work', reason='Emergency', freeze_all=True)
-        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
-        self.assertEqual([], [entry['command'] for entry in board['legal'] if '--task t1' in entry['command']])
-        halted = [entry for entry in board['blocked'] if '--task t1' in entry['command']]
-        self.assertEqual(len(halted), 2, board['blocked'])
-        for entry in halted:
-            self.assertIn('freeze-all', entry['reason'])
-            self.assertIn(f'blockers --project {self.project} --resolve', entry['next'][0])
+        board = self.tool.next_steps_for(ROOT, self.project)
+        self.assertNoOverlap(board)
+        legal = ' '.join(entry['command'] for entry in board['legal'])
+        self.assertNotIn('handoff ', legal, 'a freeze halts every work move')
+        self.assertNotIn('--status completed', legal, 'a freeze-all freezes completion')
+        self.assertEqual(len(self.cancels(board)), 1)
+        self.assertEqual(len(self.cancels(board, 't2')), 1)
+        # Every move left for a task is the cancellation itself.
+        for task_id in ('t1', 't2'):
+            with self.subTest(task=task_id):
+                moves = [entry['command'] for entry in board['legal'] if f'--task {task_id}' in entry['command']]
+                self.assertEqual(moves, self.cancels(board, task_id), board['legal'])
+                halted = [entry for entry in board['blocked'] if f'--task {task_id}' in entry['command']]
+                self.assertNotEqual(halted, [], board['blocked'])
+                for entry in halted:
+                    self.assertIn('freeze-all', entry['reason'])
+                    self.assertIn(f'blockers --project {self.project} --resolve', entry['next'][0])
 
     def test_status_and_brief_name_the_human_action_the_project_waits_on(self):
         self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Awaiting approval')

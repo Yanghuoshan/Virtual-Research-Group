@@ -1208,18 +1208,24 @@ def next_steps_for(root, project, task_id=None):
         else:
             move(f'task-status {option} --task {name} --status planned --reason "..."',
                  f'{name} is blocked; move it back to planned once the blocker is resolved', halt)
-        # Cancellation is legal from every non-terminal state; for a running task it
-        # also releases the held phase, so it confirms the executor stopped. Only a
-        # freeze-all halts it: cancelling is not work on the blocked subject.
+        # Cancellation is legal from every non-terminal state, a freeze-all included:
+        # the freeze stops work, and update_task freezes completion only, while
+        # cancelling stale work is how the project clears the stop. For a running
+        # task it also releases the held phase, so it confirms the executor stopped.
         stopped_flag = ' --executor-stopped' if status == 'running' else ''
         why = (f'{name} is running; cancel it and reconcile the executor if the work is no longer needed'
                if status == 'running' else f'{name} is no longer needed')
-        move(f'task-status {option} --task {name} --status cancelled{stopped_flag} --reason "..."',
-             why, halt if freeze else None)
+        move(f'task-status {option} --task {name} --status cancelled{stopped_flag} --reason "..."', why, None)
     if state['active_tasks']:
         block(f'phase {option} --to <phase>', 'A running executor holds the phase decision',
               f'task-status {option} --task {state["active_tasks"][0]} --status submitted '
               '--executor-stopped --reason "..." --evidence <paths>')
+    elif state['blockers']:
+        # A phase change is unrelated work: transition_phase refuses while any
+        # blocker is open, so the board must name the repair instead of the move.
+        block(f'phase {option} --to <phase>', f'Open blockers hold the phase decision ({blockers})',
+              f'blockers {option} --resolve <blocker-id> --reason "..."',
+              f'blockers {option} --edit <blocker-id> --text "..." --reason "..."')
     else:
         allow(f'phase {option} --to {"|".join(core_phases(root)[state["phase"]]["next"])} '
               '--reason "..." --evidence <paths>', 'A separate core phase decision')
