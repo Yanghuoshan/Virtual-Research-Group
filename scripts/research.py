@@ -851,7 +851,8 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             session_mode='fresh', session_reason=None, resume_session_id=None):
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
-    require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
+    refuse(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active',
+           reactivate(project))
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
@@ -892,17 +893,21 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
 def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_file=None):
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
-    require(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active')
+    refuse(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active',
+           reactivate(project))
     require(packet.get('schema_version') == 8 and receipt.get('schema_version') == 8, 'Unknown packet or receipt schema')
     refuse(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch',
-           f'handoff --project {project} --task {packet.get("task_id")} ... and save the new packet')
+           f'handoff --project {project} --task {packet.get("task_id")} --summary <summary> '
+           '--model <model> --evidence <path> --outputs <path> and save the new packet')
     refuse(packet.get('source_revision') == state['revision'] and packet.get('state_sha256') == fingerprint,
            'Packet is stale: state revision or hash changed',
-           f'handoff --project {project} --task {packet.get("task_id")} ... and save the new packet')
+           f'handoff --project {project} --task {packet.get("task_id")} --summary <summary> '
+           '--model <model> --evidence <path> --outputs <path> and save the new packet')
     task_id = packet.get('task_id')
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
-    require(task['status'] == 'planned', 'Task must be planned before assignment')
+    refuse(task['status'] == 'planned', 'Task must be planned before assignment',
+           f'status --project {project}', f'next --project {project} --task {task_id}')
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
     require(message is None, message)
     require(packet.get('core_sha256') == digest(root / 'SKILL.md'), 'Packet core binding changed')
@@ -1275,32 +1280,38 @@ def authorize(root, project, *, mode, reason, evidence=(), services=(), operatio
 
 def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
     state, _ = project_state(root, project)
-    refuse(state['status'] == 'active' and task_id in state['active_tasks'],
-           'Tool access requires an active assignment',
-           f'handoff --project {project} --task {task_id} ...',
-           f'accept --project {project} --packet <packet>',
+    refuse(state['status'] == 'active', 'Project is stopped; reactivate it before any tool access',
+           reactivate(project))
+    refuse(task_id in state['active_tasks'], 'Tool access requires an active assignment',
+           f'handoff --project {project} --task {task_id} --summary <summary> --model <model> '
+           '--evidence <path> --outputs <path>',
+           f'accept --project {project} --packet <packet> --receipt <receipt>',
            f'next --project {project} --task {task_id}')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
     require(message is None, message)
     assignment = task['assignments'][-1]
     refuse(packet_id == assignment['packet_id'], 'Tool request does not match the active packet',
-           f'handoff --project {project} --task {task_id} ... and accept the new packet')
+           f'handoff --project {project} --task {task_id} --summary <summary> --model <model> '
+           '--evidence <path> --outputs <path>, then accept the new packet')
     grant = verify_grant(project, state)
     refuse(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed',
            f'amend --project {project} --kind grant --reason "<why the approval artifact changed>"',
            f'task-status --project {project} --task {task_id} --status planned --reason "reissue packet"')
     refuse(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
            'Tool request exceeds approved scope',
-           f'authorize --project {project} --mode research --services {"|".join(grant["services"])} '
-           f'--operations {"|".join(grant["operations"])} --scope "{grant["scope"]}" ...')
+           f'authorize --project {project} --mode <planning|research> --reason <reason> '
+           f'--evidence <approval-path> --services {" ".join(grant["services"])} '
+           f'--operations {" ".join(grant["operations"])} --scope "{grant["scope"]}" '
+           f'--max-runs <n> --expires-at <iso>')
     refuse(any(assigned['server'] == server and assigned['operation'] == operation
                 for assigned in task.get('tools') or []),
            f'Tool {server}:{operation} was not assigned to task {task_id}; '
            'assign channels at task creation with --tool server:operation',
            f'amend --project {project} --kind tools --task {task_id} --tool {server}:{operation} '
-           '--reason "..." while the task is planned',
-           f'task --project {project} --task <new-id> ... --tool {server}:{operation}')
+           '--reason "<why the channel is needed>" while the task is planned',
+           f'task --project {project} --task <new-id> --objective <objective> --activity <activity> '
+           f'--skill <skill> --role <role> --acceptance <acceptance> --tool {server}:{operation}')
     semantics = operation_semantics(project, server, operation)
     if semantics['classification'] != 'read':
         require(state['mode'] == 'research' and task['activity'] == 'experiment',
