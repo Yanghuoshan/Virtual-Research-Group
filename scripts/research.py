@@ -1116,6 +1116,104 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
             'note': 'Read only; host and core must reconcile real job status'}
 
 
+def next_steps_for(root, project, task_id=None):
+    """Read-only: the commands legal right now, and the repair for everything else.
+
+    Every gate is stateful and order sensitive, and a refusal by itself only says
+    which rule was hit. This evaluates the gates against the current state so the
+    core can see the legal move without spending a round trip discovering it.
+    """
+    state, _ = project_state(root, project)
+    option = f'--project {project}'
+    legal, blocked = [], []
+
+    def allow(command, why):
+        legal.append({'command': command, 'why': why})
+
+    def block(command, reason, *steps):
+        blocked.append({'command': command, 'reason': reason, 'next': list(steps)})
+
+    if state['status'] == 'stopped':
+        block('task, handoff, accept, task-status, phase, authorize, amend, blockers',
+              'Project is stopped; task creation, handoffs, acceptance, task-status, phase and gate '
+              'decisions are all closed', reactivate(project))
+        return {'status': state['status'], 'phase': state['phase'], 'legal': legal, 'blocked': blocked}
+
+    allow(f'status {option}', 'Read the current progress board')
+    allow(f'next {option} [--task ID]', 'Re-read the legal moves after any decision')
+    blockers = blocker_summary(state)
+    if freeze_active(state):
+        block('task, handoff, accept, task-status --status completed',
+              f'A freeze-all blocker halts all task work ({blockers})',
+              f'blockers {option} --resolve <blocker-id> --reason "..."')
+    elif state['blockers']:
+        allow(f'task {option} --task <id> --objective "..." --activity analysis --skill <name> '
+              '--role <id> --acceptance "..." --resolves <blocker-id>',
+              f'Only a task resolving an open blocker may proceed ({blockers})')
+        block('task, handoff, accept for unrelated work',
+              f'Open blockers halt unrelated work ({blockers})',
+              f'blockers {option} --resolve <blocker-id> --reason "..."',
+              f'blockers {option} --edit <blocker-id> --text "..." --reason "..."')
+    else:
+        allow(f'task {option} --task <id> --objective "..." --activity analysis --skill <name> '
+              '--role <id> --acceptance "..."', 'Register a bounded task')
+
+    selected = state['tasks'] if task_id is None else {k: v for k, v in state['tasks'].items() if k == task_id}
+    if task_id is not None and not selected:
+        block(f'next {option} --task {task_id}', f'Unknown task {task_id}', f'status {option}')
+    for name, task in selected.items():
+        if task['status'] == 'planned':
+            allow(f'handoff {option} --task {name} --summary "..." --model <model> --evidence <paths> '
+                  '--outputs <new-paths>', f'{name} is planned; issue an assignment')
+            allow(f'task-status {option} --task {name} --status cancelled --reason "..."',
+                  f'{name} is no longer needed')
+        elif task['status'] == 'running':
+            allow(f'task-status {option} --task {name} --status submitted --executor-stopped '
+                  '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts')
+            block(f'handoff {option} --task {name}',
+                  f'{name} is running; one task has at most one executor',
+                  f'task-status {option} --task {name} --status blocked --executor-stopped --reason "..."')
+        elif task['status'] == 'submitted':
+            allow(f'task-status {option} --task {name} --status completed --reason "..."',
+                  f'{name} is submitted; complete it after inspecting the artifacts')
+            allow(f'task-status {option} --task {name} --status planned --reason "..."',
+                  f'{name} needs bounded rework; issue a new packet with new output paths')
+        elif task['status'] == 'blocked':
+            allow(f'task-status {option} --task {name} --status planned --reason "..."',
+                  f'{name} is blocked; move it back to planned once the blocker is resolved')
+    if state['active_tasks']:
+        block(f'phase {option} --to <phase>', 'A running executor holds the phase decision',
+              f'task-status {option} --task {state["active_tasks"][0]} --status submitted '
+              '--executor-stopped --reason "..." --evidence <paths>')
+    else:
+        allow(f'phase {option} --to {"|".join(core_phases(root)[state["phase"]]["next"])} '
+              '--reason "..." --evidence <paths>', 'A separate core phase decision')
+    return {'status': state['status'], 'phase': state['phase'], 'mode': state['mode'],
+            'legal': legal, 'blocked': blocked,
+            'note': 'Read only; every listed command is still checked when it runs'}
+
+
+def waiting_on(state):
+    """The human action the project is waiting for, or None when nothing blocks it.
+
+    Most wall-clock time in a governed loop is deliberate waiting on a person.
+    Naming it in the board and the brief is what makes that waiting visible
+    instead of indistinguishable from a stalled loop.
+    """
+    if state['status'] == 'stopped':
+        return 'human decision: reactivate the project (project-status --to active)'
+    grant = state.get('grant')
+    if isinstance(grant, dict) and nonempty(grant.get('expires_at')):
+        expiry = datetime.fromisoformat(grant['expires_at'].replace('Z', '+00:00'))
+        if expiry <= datetime.now(timezone.utc):
+            return 'human approval: the grant expired; re-authorize with a cited approval artifact'
+    if state['blockers']:
+        return f'human or task action: {len(state["blockers"])} open blocker(s)'
+    if state['mode'] == 'planning':
+        return 'human approval: experiments and external access need a cited grant (authorize)'
+    return None
+
+
 def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False, verdict=None):
     state, fingerprint = open_project(root, project)
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
@@ -1630,6 +1728,9 @@ def render_brief(state, note=None):
                      f'{last.get("reason", "")}')
     else:
         lines.append('- **Last decision:** none yet')
+    waiting = waiting_on(state)
+    if waiting:
+        lines.append(f'- **Waiting on:** {waiting}')
     lines.append(f'- **Next:** {note.strip() if note and note.strip() else "not recorded; rerun brief with --note"}')
     return '\n'.join(lines) + '\n'
 
@@ -1706,6 +1807,9 @@ def status(root, project):
                          f"open for {blocker_age(blocker)}{suffix}")
     else:
         lines.append('- **Blockers:** none')
+    waiting = waiting_on(state)
+    if waiting:
+        lines.append(f'- **Waiting on:** {waiting}')
     lines += ['', '## Tasks', '',
               '| Task | Status | Activity | Skill | Role | Resolves |',
               '|---|---|---|---|---|---|']
@@ -1750,6 +1854,8 @@ CLI = (
     ('validate', 'Validate core contract, flat skills, extensions and provenance', ()),
     ('skills', 'List built-in and extension skills directly from disk', ()),
     ('status', 'Print a read-only progress board; no state change', (('project', PROJECT),)),
+    ('next', 'Read-only: the commands legal right now and the repair for the rest',
+     (('project', PROJECT), ('task', {}))),
     ('bind', 'Read-only: print path/sha256 pairs for audit subjects, manifests and reflections',
      (('project', PROJECT), ('path', MANY))),
     ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, project silence',
@@ -1827,6 +1933,7 @@ CLI = (
 RUNNERS = {
     'skills': lambda a: all_skills(),
     'bind': lambda a: bind(a.project, a.path),
+    'next': lambda a: next_steps_for(ROOT, a.project, task_id=a.task),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
     'migrate': lambda a: migrate_project(ROOT, a.project),

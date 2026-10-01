@@ -6,9 +6,9 @@ import unittest
 
 from test_framework import ROOT, load_tool
 
-# Repair steps may name commands that are not registered yet: `next` (task
-# sequencing) and `amend` (grant and channel revision) arrive in later tasks.
-PENDING_COMMANDS = {'next', 'amend'}
+# A repair step may name a command that is not registered yet: `amend` (grant
+# and channel revision) arrives in a later task.
+PENDING_COMMANDS = {'amend'}
 
 
 class GateGuidanceTests(unittest.TestCase):
@@ -143,3 +143,31 @@ class GateGuidanceTests(unittest.TestCase):
                 self.assertIn(name, commands, f'{name} is not a registered command')
                 for flag in [word for word in step.split() if word.startswith('--')]:
                     self.assertIn(flag[2:], commands[name], f'{name} has no {flag}')
+
+    def test_next_lists_the_legal_moves_for_an_active_project(self):
+        board = self.tool.next_steps_for(ROOT, self.project)
+        self.assertEqual(board['status'], 'active')
+        joined = ' '.join(entry['command'] for entry in board['legal'])
+        self.assertIn('--task t1', joined, 'a planned task must offer handoff and cancellation')
+        self.assertIn('phase ', joined)
+
+    def test_next_gives_a_stopped_project_exactly_one_move(self):
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Awaiting approval')
+        board = self.tool.next_steps_for(ROOT, self.project)
+        self.assertEqual(board['legal'], [])
+        self.assertEqual(len(board['blocked']), 1)
+        self.assertIn('--to active', board['blocked'][0]['next'][0])
+
+    def test_next_explains_why_a_running_task_refuses_a_new_packet(self):
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Work the evidence', ['research-brief.md'],
+                                   model='current', outputs=['hypotheses/t1-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
+        blocked = ' '.join(entry['reason'] for entry in board['blocked'])
+        self.assertIn('running', blocked)
+        self.assertIn('phase', ' '.join(entry['command'] for entry in board['blocked']))
+
+    def test_status_and_brief_name_the_human_action_the_project_waits_on(self):
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Awaiting approval')
+        self.assertIn('Waiting on', self.tool.status(ROOT, self.project))
+        self.assertIn('Waiting on', self.tool.render_brief(self.tool.project_state(ROOT, self.project)[0]))
