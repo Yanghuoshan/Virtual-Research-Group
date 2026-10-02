@@ -151,6 +151,15 @@ def write_registry(project, server, registry):
     atomic_write_json(path, registry)
 
 
+def registry_operation(project, server, operation):
+    """The registry entry for one operation, or None when the host never exported it."""
+    path = registry_path(project, server)
+    if not path.is_file():
+        return None
+    entry = (read_json(path).get('operations') or {}).get(operation)
+    return entry if isinstance(entry, dict) else None
+
+
 def operation_semantics(project, server, operation):
     """The recorded classification of one operation; uncataloged means unknown."""
     path = registry_path(project, server)
@@ -754,6 +763,20 @@ def save_decision(project, state, expected_hash, event):
     return state
 
 
+def parse_tools(tools):
+    """Structured server:operation channels; prose objectives never assign one."""
+    assigned, seen = [], set()
+    for tool in list(tools or []):
+        require(isinstance(tool, str) and nonempty(tool), f'Invalid tool assignment: {tool}')
+        server, separator, operation = tool.partition(':')
+        refuse(separator and OPERATION_ID.fullmatch(server) and OPERATION_ID.fullmatch(operation),
+               f'Invalid tool assignment (expected server:operation): {tool}')
+        require((server, operation) not in seen, f'Duplicate tool assignment: {tool}')
+        seen.add((server, operation))
+        assigned.append({'server': server, 'operation': operation})
+    return assigned
+
+
 def create_task(root, project, task_id, objective, *, activity, skill, role, acceptance, independent_review=False,
                 role_prompt_text=None, resolves=None, tools=None):
     state, fingerprint = project_state(root, project)
@@ -773,15 +796,7 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
     require(isinstance(activity, str) and activity in ACTIVITIES, 'Unknown task activity')
     require(type(independent_review) is bool, 'independent_review must be a boolean')
     # External channels are structured assignments, never inferred from prose.
-    assigned_tools, seen = [], set()
-    for tool in list(tools or []):
-        require(isinstance(tool, str) and nonempty(tool), f'Invalid tool assignment: {tool}')
-        server, separator, operation = tool.partition(':')
-        require(separator and OPERATION_ID.fullmatch(server) and OPERATION_ID.fullmatch(operation),
-                f'Invalid tool assignment (expected server:operation): {tool}')
-        require((server, operation) not in seen, f'Duplicate tool assignment: {tool}')
-        seen.add((server, operation))
-        assigned_tools.append({'server': server, 'operation': operation})
+    assigned_tools = parse_tools(tools)
     selected_role = role_contract(root, role, role_prompt_text)
     selected = resolve_skill(root, skill)
     state['tasks'][task_id] = {'task_id': task_id, 'created_phase': state['phase'], 'objective': objective.strip(),
@@ -1069,8 +1084,9 @@ AMEND_KINDS = {'grant evidence': ('grant', '<why the approval artifact changed>'
                'protocol': ('protocol', '<why the protocol changed>'),
                'goal dossier': ('goal', '<why the dossier changed>')}
 # The kinds `amend` accepts: the gate artifacts a frozen execution contract carries,
-# so rebinding any of them invalidates every assignment that froze the contract.
-AMENDABLE_KINDS = tuple(kind for kind, _ in AMEND_KINDS.values())
+# so rebinding any of them invalidates every assignment that froze the contract, and
+# the channels of a still-planned task, which no executor has been handed a packet for.
+AMENDABLE_KINDS = tuple(kind for kind, _ in AMEND_KINDS.values()) + ('tools',)
 AUDIT_KINDS = {'evidence review': ('evidence', 'verified'), 'final review': ('final', 'passed')}
 
 
@@ -1204,8 +1220,21 @@ def invalidated_bindings(state):
     return affected
 
 
-def amend_binding(root, project, kind, reason):
-    """Re-bind one gate artifact to the bytes now on disk, recording old and new.
+def orphaned_channels(project, state):
+    """Frozen channels no registry can satisfy: these tasks can never pass check-tool."""
+    orphaned = []
+    for task_id, task in state['tasks'].items():
+        if task['status'] in TERMINAL_TASK_STATES:
+            continue
+        for channel in task.get('tools') or []:
+            if registry_operation(project, channel['server'], channel['operation']) is None:
+                orphaned.append({'task_id': task_id, 'status': task['status'],
+                                 'server': channel['server'], 'operation': channel['operation']})
+    return orphaned
+
+
+def amend_binding(root, project, kind, reason, task_id=None, tools=None):
+    """Re-bind one gate artifact to the bytes now on disk, or one planned task's channels.
 
     Correcting a known-false artifact is the right action; what made it damaging
     was that every gate depended on the old hash silently. The change is a core
@@ -1214,7 +1243,26 @@ def amend_binding(root, project, kind, reason):
     state, fingerprint = open_project(root, project)
     refuse(kind in AMENDABLE_KINDS, 'Amendable bindings are grant, protocol, goal or tools')
     require(nonempty(reason), 'Re-binding needs an explicit core reason')
-    if kind == 'grant':
+    if kind == 'tools':
+        # A task's channels are frozen at creation, so a registry rewrite that drops
+        # one strands every task that declared it with no way to pass check-tool.
+        # This is the repair, and it is legal only while no executor holds a packet
+        # naming the old channels.
+        require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
+        task = state['tasks'][task_id]
+        refuse(task['status'] == 'planned',
+               f'Task {task_id} is {task["status"]}; its channels may only be rebound while it is planned',
+               f'task-status --project {project} --task {task_id} --status planned --reason "reissue packet"')
+        channels = parse_tools(tools)
+        for channel in channels:
+            refuse(registry_operation(project, channel['server'], channel['operation']) is not None,
+                   f'No registry entry for {channel["server"]}:{channel["operation"]}; '
+                   'a channel must be classified before a task may declare it',
+                   f'tools --project {project} --server {channel["server"]} --operation '
+                   f'{channel["operation"]} --confirm --semantics read|write --reason "..."')
+        previous = list(task.get('tools') or [])
+        task['tools'] = channels
+    elif kind == 'grant':
         grant = state.get('grant')
         refuse(isinstance(grant, dict), 'No grant to re-bind; use authorize',
                f'authorize --project {project} --mode <planning|research> --reason <reason> '
@@ -1237,15 +1285,26 @@ def amend_binding(root, project, kind, reason):
                f'set-goal --project {project} --path hypotheses/goal-v1.md --reason "..."')
         record = evidence_record(project, reference['path'])
         state['goal'] = record
-    affected = invalidated_bindings(state)
-    state = save_decision(project, state, fingerprint,
-                          {'action': f'{kind}-rebound', 'path': record['path'],
-                           'from_sha256': reference.get('sha256'), 'to_sha256': record['sha256'],
-                           'invalidated': affected, 'reason': reason.strip()})
-    return {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
-            'to_sha256': record['sha256'], 'invalidated': affected, 'revision': state['revision'],
-            'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
-                     '--reason "reissue the packet"' for row in affected]}
+    if kind == 'tools':
+        # A channel carries no hash, so this kind records the channels themselves. No
+        # execution contract moves, and a planned task holds no packet, so no live
+        # assignment is invalidated by the new channels.
+        event = {'action': 'task-tools-amended', 'task_id': task_id, 'from': previous,
+                 'to': channels, 'reason': reason.strip()}
+        result = {'kind': kind, 'task_id': task_id, 'from': previous, 'to': channels,
+                  'invalidated': [], 'next': []}
+    else:
+        affected = invalidated_bindings(state)
+        event = {'action': f'{kind}-rebound', 'path': record['path'],
+                 'from_sha256': reference.get('sha256'), 'to_sha256': record['sha256'],
+                 'invalidated': affected, 'reason': reason.strip()}
+        result = {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
+                  'to_sha256': record['sha256'], 'invalidated': affected,
+                  'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
+                           '--reason "reissue the packet"' for row in affected]}
+    state = save_decision(project, state, fingerprint, event)
+    result['revision'] = state['revision']
+    return result
 
 
 def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hours=48):
@@ -1901,10 +1960,20 @@ def ingest_catalog(root, project, server, catalog, reason):
     registry = {'server': server, 'schema_version': 1,
                 'catalog_sha256': digest(local_path(project, catalog)), 'operations': entries}
     write_registry(project, server, registry)
+    # A task's channels are frozen at creation, so a rewrite that drops an operation
+    # strands every task that declared it: its check-tool can never pass again.
+    orphaned = orphaned_channels(project, state)
     save_decision(project, state, fingerprint, {'action': 'tool-catalog-ingested', 'server': server,
                                                 'auto_classified': counts,
                                                 'preserved_confirmations': len(entries) - sum(counts.values()),
+                                                'orphaned_channels': orphaned,
                                                 'reason': reason.strip()})
+    # The registry file describes the server, so the collateral is returned with the
+    # decision that caused it and never persisted beside the operations it stranded.
+    registry['orphaned_channels'] = orphaned
+    registry['next'] = [f'amend --project {project} --kind tools --task {row["task_id"]} '
+                        f'--tool {row["server"]}:{row["operation"]} '
+                        '--reason "<why this channel replaces the dropped one>"' for row in orphaned]
     return registry
 
 
@@ -1919,10 +1988,22 @@ def confirm_semantics(root, project, server, operation, semantics, reason):
     require(nonempty(reason), 'Confirming tool semantics needs the user-decided reason')
     require(nonempty(server) and nonempty(operation), 'Server and operation are required')
     path = registry_path(project, server)
-    require(path.is_file(), f'No tool registry for server {server}; ingest a catalog first')
-    registry = read_json(path)
-    entry = (registry.get('operations') or {}).get(operation)
-    require(isinstance(entry, dict), f'Unknown operation for server {server}: {operation}')
+    # Some hosts export no MCP catalog at all, and refusing to record an answer there
+    # would strand every task that declared the channel. The core authors the entry
+    # instead, and the record says so: a classification without server evidence is a
+    # documented boundary, not an enforced one.
+    registry = (read_json(path) if path.is_file() else
+                {'server': server, 'schema_version': 1, 'catalog_sha256': None,
+                 'provenance': 'core-authored', 'operations': {}})
+    operations = registry.get('operations')
+    if not isinstance(operations, dict):
+        operations = {}
+        registry['operations'] = operations
+    entry = operations.get(operation)
+    if not isinstance(entry, dict):
+        entry = {'operation': operation, 'description': '', 'annotations': {}, 'input_args': [],
+                 'classified_at': datetime.now(timezone.utc).isoformat(), 'signature': None}
+        operations[operation] = entry
     entry.update(classification=semantics, basis='confirmed',
                  confirmed_at=datetime.now(timezone.utc).isoformat(), reason=reason.strip())
     write_registry(project, server, registry)
@@ -1933,15 +2014,24 @@ def confirm_semantics(root, project, server, operation, semantics, reason):
 
 
 def view_registry(root, project, server=None):
-    """Read-only view of the ingested tool registries."""
-    project_state(root, project)
+    """Read-only view of the ingested tool registries and the tasks each channel is frozen into."""
+    state, _ = project_state(root, project)
     base = Path(project).resolve() / 'tools'
     servers = {}
     if base.is_dir():
         for path in sorted(base.glob('*.json')):
             if server and path.stem != server:
                 continue
-            servers[path.stem] = read_json(path)
+            registry = read_json(path)
+            for name, entry in (registry.get('operations') or {}).items():
+                if isinstance(entry, dict):
+                    # A channel is frozen into a task at creation, so the tasks naming it
+                    # are what a registry rewrite puts at risk; they are read, not stored.
+                    entry['used_by'] = sorted(task_id for task_id, task in state['tasks'].items()
+                                              if any(channel['server'] == path.stem
+                                                     and channel['operation'] == name
+                                                     for channel in task.get('tools') or []))
+            servers[path.stem] = registry
     if server:
         require(server in servers, f'No tool registry for server {server}; ingest a catalog first')
     return {'servers': servers,
@@ -2264,7 +2354,7 @@ RUNNERS = {
     'skills': lambda a: all_skills(),
     'bind': lambda a: bind(a.project, a.path),
     'bindings': lambda a: binding_report(ROOT, a.project),
-    'amend': lambda a: amend_binding(ROOT, a.project, a.kind, a.reason),
+    'amend': lambda a: amend_binding(ROOT, a.project, a.kind, a.reason, task_id=a.task, tools=a.tool),
     'next': lambda a: next_steps_for(ROOT, a.project, task_id=a.task),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),

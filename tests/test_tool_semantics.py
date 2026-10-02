@@ -246,6 +246,50 @@ class ToolSemanticsTests(unittest.TestCase):
                                      acceptance='Bounded', tools=['da-data:search_content'])
         self.assertEqual(task['tools'], [{'server': 'da-data', 'operation': 'search_content'}])
 
+    def test_ingest_reports_tasks_whose_frozen_channels_disappeared(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'},
+                     {'name': 'fetch', 'description': 'Fetch a document'}])
+        self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
+                              skill='literature-review', role='analyst', acceptance='Bounded coverage',
+                              tools=['da-data:search_content', 'da-data:fetch'])
+        registry = self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                               name='tools/catalog-dump-2.json')
+        self.assertEqual([row['operation'] for row in registry['orphaned_channels']], ['fetch'])
+        self.assertEqual(registry['orphaned_channels'][0]['task_id'], 't1')
+
+    def test_amend_tools_repairs_a_planned_task_after_a_registry_rewrite(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
+                              skill='literature-review', role='analyst', acceptance='Bounded coverage',
+                              tools=['da-data:fetch'])
+        result = self.tool.amend_binding(ROOT, self.project, 'tools', 'Registry merged into retrieval',
+                                         task_id='t1', tools=['da-data:search_content'])
+        self.assertEqual(result['to'], [{'server': 'da-data', 'operation': 'search_content'}])
+        state = json.loads((self.project / 'research-state.json').read_text())
+        self.assertEqual(state['tasks']['t1']['tools'], [{'server': 'da-data', 'operation': 'search_content'}])
+
+    def test_amend_tools_refuses_a_running_task(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
+                              skill='literature-review', role='analyst', acceptance='Bounded coverage',
+                              tools=['da-data:search_content'])
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Retrieve', ['research-brief.md'],
+                                  model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        with self.assertRaisesRegex(ValueError, 'planned'):
+            self.tool.amend_binding(ROOT, self.project, 'tools', 'Too late', task_id='t1',
+                                    tools=['da-data:search_content'])
+
+    def test_confirmation_works_when_the_host_exports_no_catalog(self):
+        # This host does not export an MCP catalog, so the core authors the entry.
+        # The record must say so: a classification without server evidence is a
+        # documented boundary, not an enforced one.
+        registry = self.tool.confirm_semantics(ROOT, self.project, 'host-web', 'fetch', 'read',
+                                               'Core-authored entry; the host exports no catalog')
+        self.assertEqual(registry['operations']['fetch']['classification'], 'read')
+        self.assertEqual(registry['provenance'], 'core-authored')
+        self.assertIsNone(registry['catalog_sha256'])
+
 
 if __name__ == '__main__':
     unittest.main()
