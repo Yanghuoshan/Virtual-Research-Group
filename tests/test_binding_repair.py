@@ -12,6 +12,10 @@ from test_framework import ROOT, load_tool
 # of a grant, protocol or goal dossier) arrives in a later task.
 PENDING_COMMANDS = {'amend'}
 
+# A core-owned root document is a snapshot input, so its drift says so instead of
+# promising a repair the core cannot make without undoing its own decision.
+CORE_DRIFT_DETAIL = 'core-owned snapshot input; drift is recorded at completion'
+
 # A goal dossier is admitted only when every field appears on exactly one populated line.
 GOAL_DOSSIER = '\n'.join((
     '# Goal dossier',
@@ -119,6 +123,19 @@ class BindingRepairTests(unittest.TestCase):
         self.tool.update_task(ROOT, self.project, task_id, 'submitted', 'Executor stopped', [artifact],
                               executor_stopped=True)
         return source, artifact
+
+    def assign_input(self, task_id, evidence, output):
+        """A running task assigned one input; no output has been submitted yet."""
+        self.create(task_id)
+        self.tool.assign(ROOT, self.project, task_id, 'Work the evidence', [evidence], model='current',
+                         outputs=[output], session_mode='current', session_reason='Small bounded task')
+
+    def submit_with_input(self, task_id, evidence, output):
+        """One task assigned a single input, with its output already submitted."""
+        self.assign_input(task_id, evidence, output)
+        self.write(output, 'Bounded result')
+        self.tool.update_task(ROOT, self.project, task_id, 'submitted', 'Executor stopped', [output],
+                              executor_stopped=True)
 
     def test_bindings_report_flags_a_broken_grant_binding(self):
         report = self.tool.binding_report(ROOT, self.project)
@@ -248,7 +265,10 @@ class BindingRepairTests(unittest.TestCase):
         self.tool.create_task(ROOT, self.project, 'sub2', 'Replannable work', activity='analysis',
                               skill='brainstorming-research-ideas', role='strategist',
                               acceptance='Each explanation has a falsifier')
-        self.tool.assign(ROOT, self.project, 'sub2', 'Work the evidence', ['research-brief.md'],
+        # A versioned input, not a core-owned root record: only the former is a frozen
+        # contract the core can reissue by replanning the task.
+        self.tool.assign(ROOT, self.project, 'sub2', 'Work the evidence',
+                         [self.write('hypotheses/sub2-input-v1.md', 'Supplied evidence for the rework')],
                          model='current', outputs=['hypotheses/sub2-v1.md'],
                          session_mode='current', session_reason='Small bounded task')
         fix_of = {row['binding']: row['fix']
@@ -340,6 +360,76 @@ class BindingRepairTests(unittest.TestCase):
         state = self.tool.update_task(ROOT, self.project, 't9', 'completed', 'Core inspected it', [])
         self.assertEqual(state['tasks']['t9']['status'], 'completed')
         self.assertIn('findings.md', state['history'][-1].get('input_drift', []))
+
+    def test_a_drifted_core_input_of_a_running_task_is_not_a_broken_binding(self):
+        # The core rewriting findings.md is what deciding looks like, so the row stays
+        # visible with the bytes it really measured but names no repair and is no fault.
+        self.assign_input('t9', 'findings.md', 'reports/t9-synthesis-v1.md')
+        self.assertEqual(self.state()['tasks']['t9']['status'], 'running',
+                         'The row must be judged while the task cannot legally be replanned')
+        self.write('findings.md', 'Accepted finding recorded by the core')
+        report = self.tool.binding_report(ROOT, self.project)
+        self.assertEqual(report['broken'], [], 'Legal core drift must not be reported as broken')
+        row = self.row_for('findings.md')
+        self.assertFalse(row['holds'], 'The row still reports what is on disk now')
+        self.assertEqual(row['detail'], CORE_DRIFT_DETAIL)
+        self.assertIsNone(row['fix'], 'No command repairs a drift deciding caused')
+        self.assertEqual(self.drift_details(), [], 'watch must not report legal core drift')
+
+    def test_input_drift_is_recorded_only_on_the_completion_event(self):
+        # `input_drift` is a statement about the completion recheck. A submitted, blocked
+        # or cancelled event never checked inputs, and an empty list there would read as
+        # "no drift" when it means "not checked".
+        self.submit_with_input('t6', 'findings.md', 'reports/t6-v1.md')
+        self.assertNotIn('input_drift', self.state()['history'][-1])
+        self.write('findings.md', 'Rewritten before the completion decision')
+        state = self.tool.update_task(ROOT, self.project, 't6', 'completed', 'Core inspected it', [])
+        self.assertIn('input_drift', state['history'][-1])
+        self.assertEqual(state['history'][-1]['input_drift'], ['findings.md'])
+
+    def test_completion_records_no_drift_when_the_core_input_is_unchanged(self):
+        self.submit_with_input('t7', 'findings.md', 'reports/t7-v1.md')
+        state = self.tool.update_task(ROOT, self.project, 't7', 'completed', 'Core inspected it', [])
+        self.assertEqual(state['history'][-1]['input_drift'], [], 'Nothing drifted, so nothing is recorded')
+        self.assertTrue(self.row_for('findings.md')['holds'])
+
+    def test_a_deleted_core_record_is_recorded_and_not_reported_as_broken(self):
+        self.submit_with_input('t8', 'findings.md', 'reports/t8-v1.md')
+        (self.project / 'findings.md').unlink()
+        row = self.row_for('findings.md')
+        self.assertFalse(row['holds'])
+        self.assertIsNone(row['current_sha256'], 'The row keeps the real measurement')
+        self.assertEqual(row['detail'], CORE_DRIFT_DETAIL)
+        self.assertIsNone(row['fix'])
+        self.assertEqual(self.tool.binding_report(ROOT, self.project)['broken'], [])
+        self.assertEqual(self.drift_details(), [])
+        state = self.tool.update_task(ROOT, self.project, 't8', 'completed', 'Core inspected it', [])
+        self.assertEqual(state['history'][-1]['input_drift'], ['findings.md'])
+
+    def test_every_core_owned_record_drifts_without_refusing(self):
+        # Membership in the constant is what exempts a path, so each member is checked
+        # here and a look-alike that is not a member is checked below.
+        for index, path in enumerate(self.tool.CORE_MUTABLE_RECORDS):
+            with self.subTest(path=path):
+                task_id = f'core-{index}'
+                self.submit_with_input(task_id, path, f'reports/core-{index}-v1.md')
+                self.write(path, f'Core rewrote {path} after the assignment')
+                state = self.tool.update_task(ROOT, self.project, task_id, 'completed', 'Core inspected it', [])
+                self.assertEqual(state['tasks'][task_id]['status'], 'completed')
+                self.assertEqual(state['history'][-1]['input_drift'], [path])
+                broken = [row['path'] for row in self.tool.binding_report(ROOT, self.project)['broken']]
+                self.assertNotIn(path, broken)
+                self.assertEqual(self.drift_details(), [])
+
+    def test_a_versioned_copy_of_a_core_record_name_is_still_refused(self):
+        # reports/findings.md shares its basename with the core-owned root record but is
+        # a versioned artifact, so the basename alone does not buy the exemption.
+        evidence = self.write('reports/findings.md', 'Versioned copy of the accepted findings')
+        self.submit_with_input('t5', evidence, 'reports/t5-v1.md')
+        self.write(evidence, 'Versioned copy, revised')
+        with self.assertRaisesRegex(ValueError, 'Task input reports/findings.md changed') as raised:
+            self.tool.update_task(ROOT, self.project, 't5', 'completed', 'Core inspected it', [])
+        self.assertIn('--task t5 --status planned', str(raised.exception))
 
     def test_changed_versioned_input_is_refused_with_a_repair(self):
         self.run_task()

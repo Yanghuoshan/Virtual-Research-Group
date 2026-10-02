@@ -1096,6 +1096,25 @@ def binding_fix(project, binding, path, task_id=None, task_status=None):
     return f'task-status {option} --task {task_id} --status planned --reason "reissue the packet"'
 
 
+# Core-owned root documents, not versioned artifacts: the core rewrites findings.md
+# when it accepts a result, research-log.md on every decision (its brief block is
+# rewritten mechanically), and research-brief.md is the human narrative of the scope,
+# written once by initialize and rewritten by the core when the scope changes. Binding
+# one as a frozen contract input made completion unsatisfiable by construction, because
+# recording the result is exactly what invalidated the input. They are snapshot inputs:
+# the hash is taken at assignment and drift is recorded at completion, never refused.
+CORE_MUTABLE_RECORDS = ('findings.md', 'research-log.md', 'research-brief.md')
+
+# What a core-owned row reports instead of a repair: deciding caused the drift, so the
+# row keeps the measurement it made and names no command to undo its own decision.
+CORE_DRIFT_DETAIL = 'core-owned snapshot input; drift is recorded at completion'
+
+
+def core_owned(path):
+    """Whether a bound path is a core-owned root document: its drift is recorded, not refused."""
+    return path in CORE_MUTABLE_RECORDS
+
+
 def binding_measurement(project, path, recorded_sha256):
     """What the disk says about one bound path: its hash now, or why the row is broken.
 
@@ -1138,6 +1157,12 @@ def binding_report(root, project, state=None):
                'task_status': task_status,
                'fix': binding_fix(project, binding, reference['path'], task_id, task_status)}
         row.update(binding_measurement(project, reference['path'], reference.get('sha256')))
+        if core_owned(reference['path']):
+            # The core rewrites these as a consequence of deciding, so their drift is a
+            # fact to record at completion, not a fault: the row keeps the measurement it
+            # really made, names no repair and is never counted as broken.
+            row['detail'] = CORE_DRIFT_DETAIL
+            row['fix'] = None
         rows.append(row)
 
     add('grant evidence', (state.get('grant') or {}).get('evidence'))
@@ -1153,7 +1178,8 @@ def binding_report(root, project, state=None):
             add(f'{task_id} submitted artifact', record, task['status'], task_id)
     for reflection in state.get('reflections', []):
         add('reflection artifact', reflection.get('artifact'), task_id=reflection.get('task_id'))
-    return {'bindings': rows, 'broken': [row for row in rows if not row['holds']],
+    return {'bindings': rows,
+            'broken': [row for row in rows if not row['holds'] and not core_owned(row['path'])],
             'note': 'Read only; amend rebinds one gate artifact and records old and new hashes'}
 
 
@@ -1199,6 +1225,10 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
         # Content drift on a finished task is history; a deleted file is not a consequence
         # of finishing the work, so it stays visible.
         if row.get('task_status') in ('completed', 'cancelled') and row.get('detail') != 'file is missing':
+            continue
+        # A core-owned root document drifts because the core decided, so the drift is
+        # recorded at completion and is not the loop's business to report.
+        if core_owned(row['path']):
             continue
         # A deleted file and an edited file are repaired differently, so the row's own
         # detail names the repair: rebind the new bytes, or restore the missing file.
@@ -1405,14 +1435,6 @@ def waiting_on(state):
     return None
 
 
-# The core rewrites these root documents as a direct consequence of deciding: the
-# brief on every decision, findings on every acceptance. Binding one as a frozen
-# contract input made completion unsatisfiable by construction, because recording
-# the result is exactly what invalidated the input. They are snapshot inputs: the
-# hash is taken at assignment and drift is recorded at completion, never refused.
-CORE_MUTABLE_RECORDS = ('findings.md', 'research-log.md', 'research-brief.md')
-
-
 def update_task(root, project, task_id, status, reason, evidence, *, executor_stopped=False, verdict=None):
     state, fingerprint = open_project(root, project)
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
@@ -1453,22 +1475,22 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
             require(assignment.get('execution_contract') == execution_contract(state),
                     'Execution contract changed; reconcile the old run before completing')
         for record in assignment['evidence']:
-            if record['path'] in CORE_MUTABLE_RECORDS:
-                target = local_path(project, record['path'])
-                if not target.is_file() or digest(target, cached=False) != record['sha256']:
+            # The same measurement the report shows, so a refused input and a listed row
+            # can never disagree about what is on disk; it never raises.
+            measured = binding_measurement(project, record['path'], record.get('sha256'))
+            if core_owned(record['path']):
+                if not measured['holds']:
                     drift.append(record['path'])
                 continue
-            try:
-                verify_reference(project, record, 'Task input')
-            except ValueError:
-                current_path = local_path(project, record['path'])
-                current = digest(current_path, cached=False) if current_path.is_file() else 'missing'
-                raise Refusal(f'Task input {record["path"]} changed since this assignment was accepted '
-                              f'({str(record["sha256"])[:12]} -> {current[:12]})',
-                              f'task-status --project {project} --task {task_id} --status planned '
-                              '--reason "reissue the packet"',
-                              f'task-status --project {project} --task {task_id} --status cancelled '
-                              '--reason "..." and create a new task when the objective changed') from None
+            recorded = (record.get('sha256') or 'missing')[:12]
+            current = measured.get('detail') or (measured['current_sha256'] or 'missing')[:12]
+            refuse(measured['holds'],
+                   f'Task input {record["path"]} changed since this assignment was accepted '
+                   f'({recorded} -> {current})',
+                   f'task-status --project {project} --task {task_id} --status planned '
+                   '--reason "reissue the packet"',
+                   f'task-status --project {project} --task {task_id} --status cancelled '
+                   '--reason "..." and create a new task when the objective changed')
         activity_evidence(project, state, task['activity'], list(assignment['evidence']), check_expiry=False)
         # Completion records finished work: foreign open blockers never freeze it,
         # but an explicit freeze-all emergency stop does.
@@ -1483,13 +1505,16 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
         for blocker in resolved_now:
             close_blocker(state, blocker['blocker_id'],
                           {'kind': 'task', 'task_id': task_id, 'revision': state['revision'] + 1})
+    event = {'action': 'task-' + status, 'task_id': task_id, 'reason': reason.strip(), 'evidence': records,
+             'auto_resolved': auto_resolved, 'declared_already_closed': declared_already_closed,
+             'verdict': verdict}
+    # `input_drift` is a statement about the completion recheck. A submitted, blocked or
+    # cancelled event never checked the inputs, and an empty list there would read as
+    # "nothing drifted" when it means "not checked".
+    if status == 'completed':
+        event['input_drift'] = drift
     task['status'] = status
-    return save_decision(project, state, fingerprint, {'action': 'task-' + status, 'task_id': task_id,
-                                                      'reason': reason.strip(), 'evidence': records,
-                                                      'auto_resolved': auto_resolved,
-                                                      'input_drift': drift,
-                                                      'declared_already_closed': declared_already_closed,
-                                                      'verdict': verdict})
+    return save_decision(project, state, fingerprint, event)
 
 
 def submit(root, project, task_id, reason, evidence, *, verdict=None):
