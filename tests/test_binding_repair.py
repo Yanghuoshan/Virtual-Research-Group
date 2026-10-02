@@ -8,10 +8,6 @@ import unittest
 
 from test_framework import ROOT, load_tool
 
-# A repair step may name a command that is not registered yet: `amend` (the rebinding
-# of a grant, protocol or goal dossier) arrives in a later task.
-PENDING_COMMANDS = {'amend'}
-
 # A core-owned root document is a snapshot input, so its drift says so instead of
 # promising a repair the core cannot make without undoing its own decision.
 CORE_DRIFT_DETAIL = 'core-owned snapshot input; drift is recorded at completion'
@@ -224,13 +220,19 @@ class BindingRepairTests(unittest.TestCase):
         self.tool.HASH_MEMO[key] = 'a hash read before the file was edited'
         self.assertEqual(self.row_for(self.approval)['current_sha256'], expected)
 
+    def repair_steps(self, call):
+        """The repair commands one refusal carries, each stripped of its sentence stop."""
+        with self.assertRaises(ValueError) as raised:
+            call()
+        text = str(raised.exception)
+        self.assertIn('Next:', text, f'No repair offered: {text}')
+        return [step.rstrip('.') for step in text.split(' Next: ')[1:]]
+
     def assertRealCommands(self, steps):
         """Every fix names a registered command and only real flags of it."""
         commands = {name: dict(options) for name, _, options in self.tool.CLI}
         for step in steps:
             name = step.split()[0]
-            if name in PENDING_COMMANDS:
-                continue
             with self.subTest(step=step):
                 self.assertIn(name, commands, f'{name} is not a registered command')
                 for flag in [word for word in step.split() if word.startswith('--')]:
@@ -461,14 +463,106 @@ class BindingRepairTests(unittest.TestCase):
         packet = self.tool.handoff(ROOT, self.project, 't1', 'Retrieve', ['research-brief.md'],
                                    model='current', outputs=['literature/review-v1.md'])
         self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:s1'))
+        before = self.tool.digest(self.project / self.approval, cached=False)
         self.write(self.approval, 'Approved bounded channel; corrected arXiv title')
-        result = self.tool.amend_binding(ROOT, self.project, 'grant', 'Corrected a false title in the approval')
+        reason = 'Corrected a false title in the approval'
+        result = self.tool.amend_binding(ROOT, self.project, 'grant', reason)
         self.assertNotEqual(result['from_sha256'], result['to_sha256'])
+        self.assertEqual(result['from_sha256'], before)
+        self.assertEqual(result['to_sha256'], self.tool.digest(self.project / self.approval, cached=False))
         self.assertEqual([row['task_id'] for row in result['invalidated']], ['t1'])
-        state = json.loads((self.project / 'research-state.json').read_text())
-        event = state['history'][-1]
+        event = self.state()['history'][-1]
         self.assertEqual(event['action'], 'grant-rebound')
-        self.assertEqual(event['from_sha256'], result['from_sha256'])
+        # A rebound hash that is not recorded is a correction nobody can reconstruct,
+        # so every field the event carries is pinned here.
+        self.assertEqual(event['from_sha256'], before)
+        self.assertEqual(event['to_sha256'], result['to_sha256'])
+        self.assertEqual(event['to_sha256'], self.tool.digest(self.project / self.approval, cached=False))
+        self.assertEqual(event['path'], self.approval)
+        self.assertEqual(event['invalidated'], result['invalidated'])
+        self.assertEqual(event['invalidated'],
+                         [{'task_id': 't1', 'packet_id': packet['packet_id'], 'status': 'running'}])
+        self.assertEqual(event['reason'], reason)
+
+    def test_amend_invalidates_a_running_task_and_not_a_finished_one(self):
+        """A finished task answered for the old binding; only live work is invalidated."""
+        self.submit_with_input('done', 'research-brief.md', 'reports/done-v1.md')
+        self.tool.update_task(ROOT, self.project, 'done', 'completed', 'Core accepted it', [])
+        self.assign_input('live', 'research-brief.md', 'reports/live-v1.md')
+        self.assertEqual(self.state()['tasks']['done']['status'], 'completed')
+        self.assertEqual(self.state()['tasks']['live']['status'], 'running')
+        self.write(self.approval, 'Approved bounded channel; corrected arXiv title')
+        result = self.tool.amend_binding(ROOT, self.project, 'grant', 'Corrected a false title')
+        self.assertEqual([row['task_id'] for row in result['invalidated']], ['live'])
+        # Both snapshots really diverge, so what excludes `done` is its status and not
+        # a snapshot that happens still to match the contract.
+        contract = self.tool.execution_contract(self.state())
+        for task_id in ('done', 'live'):
+            with self.subTest(task_id=task_id):
+                self.assertNotEqual(self.state()['tasks'][task_id]['assignments'][-1]['execution_contract'],
+                                    contract)
+
+    def test_amend_rebinds_the_protocol_and_reports_invalidated_assignments(self):
+        protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
+        self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
+        before = self.tool.digest(self.project / protocol, cached=False)
+        self.assign_input('p1', 'research-brief.md', 'reports/p1-v1.md')
+        self.write(protocol, 'Frozen protocol for the paired runs, with a matched split')
+        reason = 'Protocol gained the matched split'
+        result = self.tool.amend_binding(ROOT, self.project, 'protocol', reason)
+        self.assertNotEqual(result['from_sha256'], result['to_sha256'])
+        self.assertEqual(result['from_sha256'], before)
+        self.assertEqual(result['to_sha256'], self.tool.digest(self.project / protocol, cached=False))
+        self.assertEqual([row['task_id'] for row in result['invalidated']], ['p1'])
+        event = self.state()['history'][-1]
+        self.assertEqual(event['action'], 'protocol-rebound')
+        self.assertEqual(event['from_sha256'], before)
+        self.assertEqual(event['to_sha256'], result['to_sha256'])
+        self.assertEqual(event['path'], protocol)
+        self.assertEqual(event['invalidated'], result['invalidated'])
+        self.assertEqual(event['reason'], reason)
+
+    def test_amend_rebinds_the_goal_and_reports_invalidated_assignments(self):
+        goal = self.write('hypotheses/goal-v1.md', GOAL_DOSSIER)
+        self.tool.set_goal(ROOT, self.project, goal, 'Scope selected from the dossier')
+        before = self.tool.digest(self.project / goal, cached=False)
+        self.assign_input('g1', 'research-brief.md', 'reports/g1-v1.md')
+        self.write(goal, GOAL_DOSSIER.replace('one paired run per seed', 'two paired runs per seed'))
+        reason = 'Dossier corrected its resource estimate'
+        result = self.tool.amend_binding(ROOT, self.project, 'goal', reason)
+        self.assertNotEqual(result['from_sha256'], result['to_sha256'])
+        self.assertEqual(result['from_sha256'], before)
+        self.assertEqual(result['to_sha256'], self.tool.digest(self.project / goal, cached=False))
+        self.assertEqual([row['task_id'] for row in result['invalidated']], ['g1'])
+        event = self.state()['history'][-1]
+        self.assertEqual(event['action'], 'goal-rebound')
+        self.assertEqual(event['from_sha256'], before)
+        self.assertEqual(event['to_sha256'], result['to_sha256'])
+        self.assertEqual(event['path'], goal)
+        self.assertEqual(event['invalidated'], result['invalidated'])
+        self.assertEqual(event['reason'], reason)
+
+    def test_amend_refuses_to_rebind_what_was_never_frozen(self):
+        """`amend` rebinds a frozen artifact; filling an empty slot is another command's job."""
+        for kind, command, path in (('protocol', 'set-protocol', 'experiments/<id>/protocol.md'),
+                                    ('goal', 'set-goal', 'hypotheses/goal-v1.md')):
+            with self.subTest(kind=kind):
+                steps = self.repair_steps(
+                    lambda: self.tool.amend_binding(ROOT, self.project, kind, f'No {kind} was frozen'))
+                self.assertEqual(steps, [f'{command} --project {self.project} --path {path} --reason "..."'])
+                self.assertRealCommands(steps)
+
+    def test_amend_refuses_to_rebind_a_grant_that_was_never_authorized(self):
+        state = self.state()
+        state['grant'] = None
+        (self.project / 'research-state.json').write_text(json.dumps(state))
+        steps = self.repair_steps(
+            lambda: self.tool.amend_binding(ROOT, self.project, 'grant', 'Nothing was authorized'))
+        self.assertEqual(steps, [f'authorize --project {self.project} --mode <planning|research> '
+                                 '--reason <reason> --evidence <approval-path> --services <services> '
+                                 '--operations <operations> --scope "<scope>" --max-runs <n> '
+                                 '--expires-at <iso>'])
+        self.assertRealCommands(steps)
 
     def test_amend_refuses_to_rewrite_a_contract_field(self):
         with self.assertRaisesRegex(ValueError, 'grant, protocol, goal'):

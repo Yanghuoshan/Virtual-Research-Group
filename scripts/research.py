@@ -1063,8 +1063,8 @@ def host_event(root, project, task_id, job_id, status, reason):
 
 # A repair step is an executable command, never prose advice, so each broken binding
 # names the command that rebinds it at the project that owns it. `amend` rebinds the
-# three global gate artifacts and is not registered yet, so those fixes are named
-# but not runnable; the rest are commands the core can issue as written.
+# three global gate artifacts, and every command named here is registered, so each
+# fix runs as written at the project that owns it.
 AMEND_KINDS = {'grant evidence': ('grant', '<why the approval artifact changed>'),
                'protocol': ('protocol', '<why the protocol changed>'),
                'goal dossier': ('goal', '<why the dossier changed>')}
@@ -1216,7 +1216,10 @@ def amend_binding(root, project, kind, reason):
     require(nonempty(reason), 'Re-binding needs an explicit core reason')
     if kind == 'grant':
         grant = state.get('grant')
-        require(isinstance(grant, dict), 'No grant to re-bind; use authorize')
+        refuse(isinstance(grant, dict), 'No grant to re-bind; use authorize',
+               f'authorize --project {project} --mode <planning|research> --reason <reason> '
+               '--evidence <approval-path> --services <services> --operations <operations> '
+               '--scope "<scope>" --max-runs <n> --expires-at <iso>')
         reference = dict(grant['evidence'])
         record = evidence_record(project, reference['path'])
         grant['evidence'] = record
