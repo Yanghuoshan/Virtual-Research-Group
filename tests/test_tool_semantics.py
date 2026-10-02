@@ -48,6 +48,39 @@ class ToolSemanticsTests(unittest.TestCase):
                 'session_notes': 'Host identity verified', 'state_hash_checked': True,
                 'core_hash_checked': True, 'skill_hash_checked': True, 'evidence_hashes_checked': True}
 
+    def channel_task(self, task_id, operations):
+        """A planned analysis task whose channels are declared, not inferred from its objective."""
+        return self.tool.create_task(ROOT, self.project, task_id, 'Retrieve sources', activity='analysis',
+                                     skill='literature-review', role='analyst', acceptance='Bounded coverage',
+                                     tools=[f'da-data:{name}' for name in operations])
+
+    def complete(self, task_id):
+        """Drive a planned task to completed: the terminal state no repair can leave."""
+        outputs = [f'literature/{task_id}.md']
+        packet = self.tool.handoff(ROOT, self.project, task_id, 'Retrieve sources', ['research-brief.md'],
+                                   model='current', outputs=outputs)
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write(outputs[0], 'Findings with provenance, limits and open questions')
+        return self.tool.submit(ROOT, self.project, task_id, 'Core verified the artifact', outputs, verdict='met')
+
+    def refusal(self, call):
+        """The message and the repair steps of one refusal."""
+        with self.assertRaises(ValueError) as raised:
+            call()
+        text = str(raised.exception)
+        self.assertIn('Next:', text, f'No repair offered: {text}')
+        return text, [step.rstrip('.') for step in text.split(' Next: ')[1:]]
+
+    def assert_real_commands(self, steps):
+        """Every step names a registered command and only real flags of it."""
+        commands = {name: dict(options) for name, _, options in self.tool.CLI}
+        for step in steps:
+            name = step.split()[0]
+            with self.subTest(step=step):
+                self.assertIn(name, commands, f'{name} is not a registered command')
+                for flag in [word for word in step.split() if word.startswith('--')]:
+                    self.assertIn(flag[2:], commands[name], f'{name} has no {flag}')
+
     def test_catalog_ingest_classifies_from_server_evidence(self):
         registry = self.ingest([
             {'name': 'search_content', 'description': 'Search indexed documents'},
@@ -246,6 +279,13 @@ class ToolSemanticsTests(unittest.TestCase):
                                      acceptance='Bounded', tools=['da-data:search_content'])
         self.assertEqual(task['tools'], [{'server': 'da-data', 'operation': 'search_content'}])
 
+    def test_a_channel_is_declared_once(self):
+        # The same channel twice is one channel, so the second declaration says
+        # nothing and is refused instead of silently collapsing.
+        with self.assertRaisesRegex(ValueError, 'Duplicate tool assignment: da-data:search_content'):
+            self.channel_task('t1', ['search_content', 'search_content'])
+        self.assertNotIn('t1', self.state()['tasks'], 'A refused declaration must not create the task')
+
     def test_ingest_reports_tasks_whose_frozen_channels_disappeared(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'},
                      {'name': 'fetch', 'description': 'Fetch a document'}])
@@ -256,6 +296,68 @@ class ToolSemanticsTests(unittest.TestCase):
                                name='tools/catalog-dump-2.json')
         self.assertEqual([row['operation'] for row in registry['orphaned_channels']], ['fetch'])
         self.assertEqual(registry['orphaned_channels'][0]['task_id'], 't1')
+
+    def test_orphan_collateral_is_returned_and_never_persisted(self):
+        # The file describes the server. The stranded channels are collateral of this
+        # one decision, so they travel with it and are never written beside the
+        # operations that stranded them.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'},
+                     {'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t1', ['fetch'])
+        registry = self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                               name='tools/catalog-dump-2.json')
+        self.assertEqual(registry['orphaned_channels'],
+                         [{'task_id': 't1', 'status': 'planned', 'server': 'da-data', 'operation': 'fetch'}])
+        self.assertEqual(len(registry['next']), 1)
+        step = registry['next'][0]
+        for fragment in ('amend ', '--kind tools', '--task t1', '--tool da-data:fetch', '--reason'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, step)
+        self.assert_real_commands(registry['next'])
+        on_disk = json.loads((self.project / 'tools' / 'da-data.json').read_text())
+        self.assertNotIn('orphaned_channels', on_disk)
+        self.assertNotIn('next', on_disk)
+        self.assertEqual(sorted(on_disk), ['catalog_sha256', 'operations', 'schema_version', 'server'])
+
+    def test_ingest_event_records_the_channels_it_stranded(self):
+        self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t1', ['fetch'])
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                    name='tools/catalog-dump-2.json')
+        ingested = [row for row in self.state()['history'] if row['action'] == 'tool-catalog-ingested']
+        self.assertEqual(ingested[-1]['orphaned_channels'],
+                         [{'task_id': 't1', 'status': 'planned', 'server': 'da-data', 'operation': 'fetch'}])
+
+    def test_orphaned_channels_ignores_finished_tasks(self):
+        # A completed or cancelled task can never be repaired, so reporting it as
+        # stranded would name work no command can fix.
+        self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t-done', ['fetch'])
+        self.complete('t-done')
+        self.channel_task('t-cancelled', ['fetch'])
+        self.tool.update_task(ROOT, self.project, 't-cancelled', 'cancelled', 'Objective changed', [])
+        self.channel_task('t-planned', ['fetch'])
+        self.assertEqual(self.state()['tasks']['t-done']['status'], 'completed')
+        self.assertEqual(self.state()['tasks']['t-cancelled']['status'], 'cancelled')
+        registry = self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                               name='tools/catalog-dump-2.json')
+        self.assertEqual([row['task_id'] for row in registry['orphaned_channels']], ['t-planned'])
+
+    def test_view_registry_names_the_tasks_a_channel_is_frozen_into(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        # Declared in reverse order: the view is sorted, so it is not declaration order.
+        self.channel_task('t2', ['search_content'])
+        self.channel_task('t1', ['search_content'])
+        self.channel_task('t3', [])
+        view = self.tool.view_registry(ROOT, self.project)
+        self.assertEqual(view['servers']['da-data']['operations']['search_content']['used_by'], ['t1', 't2'])
+        # The view is read-only: the file describes the server, not the tasks naming it.
+        path = self.project / 'tools' / 'da-data.json'
+        self.assertNotIn('used_by', path.read_text())
+        on_disk = json.loads(path.read_text())
+        for name, entry in on_disk['operations'].items():
+            with self.subTest(operation=name):
+                self.assertNotIn('used_by', entry)
 
     def test_amend_tools_repairs_a_planned_task_after_a_registry_rewrite(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
@@ -268,6 +370,34 @@ class ToolSemanticsTests(unittest.TestCase):
         state = json.loads((self.project / 'research-state.json').read_text())
         self.assertEqual(state['tasks']['t1']['tools'], [{'server': 'da-data', 'operation': 'search_content'}])
 
+    def test_amend_tools_event_carries_both_channel_sets(self):
+        # A channel carries no hash, so the decision is recorded as the channels
+        # themselves: what the task declared before and what it declares now.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['fetch'])
+        self.tool.amend_binding(ROOT, self.project, 'tools', 'Registry merged into retrieval',
+                                task_id='t1', tools=['da-data:search_content'])
+        event = self.state()['history'][-1]
+        self.assertEqual(event['action'], 'task-tools-amended')
+        self.assertEqual(event['task_id'], 't1')
+        self.assertEqual(event['from'], [{'server': 'da-data', 'operation': 'fetch'}])
+        self.assertEqual(event['to'], [{'server': 'da-data', 'operation': 'search_content'}])
+
+    def test_amend_tools_with_no_channels_clears_a_stranded_one(self):
+        # Dropping a channel the registry can no longer satisfy is a legal repair.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['fetch'])
+        result = self.tool.amend_binding(ROOT, self.project, 'tools', 'Drop the stranded channel',
+                                         task_id='t1', tools=[])
+        self.assertEqual(result['from'], [{'server': 'da-data', 'operation': 'fetch'}])
+        self.assertEqual(result['to'], [])
+        task = self.state()['tasks']['t1']
+        self.assertEqual(task['tools'], [])
+        event = self.state()['history'][-1]
+        self.assertEqual(event['action'], 'task-tools-amended')
+        self.assertEqual(event['from'], [{'server': 'da-data', 'operation': 'fetch'}])
+        self.assertEqual(event['to'], [])
+
     def test_amend_tools_refuses_a_running_task(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
         self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
@@ -279,6 +409,22 @@ class ToolSemanticsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'planned'):
             self.tool.amend_binding(ROOT, self.project, 'tools', 'Too late', task_id='t1',
                                     tools=['da-data:search_content'])
+
+    def test_amend_tools_names_the_confirmation_an_unclassified_channel_needs(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['search_content'])
+        text, steps = self.refusal(lambda: self.tool.amend_binding(
+            ROOT, self.project, 'tools', 'Wrong channel', task_id='t1', tools=['da-data:ghost']))
+        self.assertIn('No registry entry for da-data:ghost', text)
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        for fragment in ('tools --project', str(self.project), '--server da-data', '--operation ghost',
+                         '--confirm', '--semantics read|write', '--reason'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, step)
+        self.assert_real_commands(steps)
+        # A refused amendment leaves the declared channels alone.
+        self.assertEqual(self.state()['tasks']['t1']['tools'], [{'server': 'da-data', 'operation': 'search_content'}])
 
     def test_confirmation_works_when_the_host_exports_no_catalog(self):
         # This host does not export an MCP catalog, so the core authors the entry.
