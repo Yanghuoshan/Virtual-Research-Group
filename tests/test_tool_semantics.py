@@ -1,8 +1,11 @@
 """Tool semantics registry: catalog ingestion, classification, confirmation and gating."""
 
+import contextlib
 import hashlib
+import io
 import json
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 
@@ -70,6 +73,12 @@ class ToolSemanticsTests(unittest.TestCase):
         text = str(raised.exception)
         self.assertIn('Next:', text, f'No repair offered: {text}')
         return text, [step.rstrip('.') for step in text.split(' Next: ')[1:]]
+
+    def run_cli(self, argv):
+        """Run one command through the CLI and return its exit code and output."""
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            code = self.tool.main(argv)
+        return code, captured.getvalue()
 
     def assert_real_commands(self, steps):
         """Every step names a registered command and only real flags of it."""
@@ -189,6 +198,23 @@ class ToolSemanticsTests(unittest.TestCase):
         self.assertTrue(result['allowed'])
         self.assertFalse(result['needs_confirmation'])
         self.assertEqual(result['operation_semantics']['classification'], 'read')
+        # The executor is told where the classification came from, so a confirmed
+        # answer over a catalog entry is not read as one with no server evidence.
+        self.assertEqual(result['operation_semantics']['provenance'], 'catalog')
+
+    def test_operation_semantics_names_a_classification_without_server_evidence(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.tool.confirm_semantics(ROOT, self.project, 'host-web', 'fetch', 'read',
+                                    'Core-authored entry; the host exports no catalog')
+        classified = self.tool.operation_semantics(self.project, 'da-data', 'search_content')
+        authored = self.tool.operation_semantics(self.project, 'host-web', 'fetch')
+        self.assertEqual(classified['provenance'], 'catalog')
+        self.assertEqual(authored['provenance'], 'core-authored')
+        self.assertEqual(authored['basis'], 'confirmed')
+        # A server that never exported anything still classifies as unknown.
+        unknown = self.tool.operation_semantics(self.project, 'never-seen', 'fetch')
+        self.assertEqual(unknown['classification'], 'unknown')
+        self.assertEqual(unknown['provenance'], 'none')
 
     def test_tool_calls_are_recorded_against_preflight_tokens(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
@@ -310,7 +336,11 @@ class ToolSemanticsTests(unittest.TestCase):
                          [{'task_id': 't1', 'status': 'planned', 'server': 'da-data', 'operation': 'fetch'}])
         self.assertEqual(len(registry['next']), 1)
         step = registry['next'][0]
-        for fragment in ('amend ', '--kind tools', '--task t1', '--tool da-data:fetch', '--reason'):
+        # The dropped channel cannot be the replacement: the new catalog does not
+        # export it, so the repair names a placeholder and the reason says what it
+        # replaces.
+        for fragment in ('amend ', '--kind tools', '--task t1', '--tool <server:operation>',
+                         'replaces da-data:fetch', '--reason'):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, step)
         self.assert_real_commands(registry['next'])
@@ -318,6 +348,42 @@ class ToolSemanticsTests(unittest.TestCase):
         self.assertNotIn('orphaned_channels', on_disk)
         self.assertNotIn('next', on_disk)
         self.assertEqual(sorted(on_disk), ['catalog_sha256', 'operations', 'schema_version', 'server'])
+
+    def test_the_repair_a_rewrite_offers_can_be_run(self):
+        # A vocabulary check cannot catch this defect: the repair used to name the
+        # channel this very catalog had just dropped, so following it was refused
+        # with 'No registry entry', and the second-order repair it pointed at then
+        # resurrected the dropped operation. Only running the offered command proves
+        # the replacement it names is reachable.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'},
+                     {'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t1', ['fetch'])
+        registry = self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                               name='tools/catalog-dump-2.json')
+        # Substitute the one channel the rewritten registry still exports.
+        command = registry['next'][0].replace('<server:operation>', 'da-data:search_content')
+        code, _ = self.run_cli(shlex.split(command))
+        self.assertEqual(code, 0, command)
+        self.assertEqual(self.state()['tasks']['t1']['tools'],
+                         [{'server': 'da-data', 'operation': 'search_content'}])
+
+    def test_orphan_repair_for_a_task_that_is_not_planned_names_the_state_change(self):
+        # A channel may only be rebound while the task is planned, so promising the
+        # amend alone would name a command that is certain to be refused.
+        self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t-running', ['fetch'])
+        packet = self.tool.handoff(ROOT, self.project, 't-running', 'Retrieve', ['research-brief.md'],
+                                  model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        registry = self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}],
+                               name='tools/catalog-dump-2.json')
+        self.assertEqual([row['status'] for row in registry['orphaned_channels']], ['running'])
+        self.assertEqual(registry['next'],
+                         [f'task-status --project {self.project} --task t-running --status blocked '
+                          '--executor-stopped --reason "stop the executor holding the old channels"',
+                          f'task-status --project {self.project} --task t-running --status planned '
+                          '--reason "reissue the packet"'])
+        self.assert_real_commands(registry['next'])
 
     def test_ingest_event_records_the_channels_it_stranded(self):
         self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
@@ -398,6 +464,37 @@ class ToolSemanticsTests(unittest.TestCase):
         self.assertEqual(event['from'], [{'server': 'da-data', 'operation': 'fetch'}])
         self.assertEqual(event['to'], [])
 
+    def test_amend_tools_without_channels_is_refused_not_cleared(self):
+        # The CLI default was [], so an omitted channel list wiped every channel the
+        # task declared with no warning. Omitting them is a refusal; the library's
+        # empty list stays legal, because there it is an explicit decision.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['search_content'])
+        text, steps = self.refusal(lambda: self.tool.amend_binding(
+            ROOT, self.project, 'tools', 'Forgot to name the channel', task_id='t1'))
+        self.assertIn('--tool', text)
+        self.assertIn('--no-tools', text)
+        self.assertEqual(len(steps), 2)
+        self.assert_real_commands(steps)
+        self.assertEqual(self.state()['tasks']['t1']['tools'],
+                         [{'server': 'da-data', 'operation': 'search_content'}])
+        self.tool.amend_binding(ROOT, self.project, 'tools', 'Cleared on purpose', task_id='t1', tools=[])
+        self.assertEqual(self.state()['tasks']['t1']['tools'], [])
+
+    def test_cli_amend_tools_omitting_the_channel_list_clears_nothing(self):
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['search_content'])
+        code, _ = self.run_cli(['amend', '--project', str(self.project), '--kind', 'tools',
+                                '--task', 't1', '--reason', 'No channel named'])
+        self.assertEqual(code, 2, 'An omitted channel list must be refused, not applied')
+        self.assertEqual(self.state()['tasks']['t1']['tools'],
+                         [{'server': 'da-data', 'operation': 'search_content'}])
+        # --no-tools is the explicit way to say the task needs no channel.
+        code, _ = self.run_cli(['amend', '--project', str(self.project), '--kind', 'tools',
+                                '--task', 't1', '--no-tools', '--reason', 'Channel no longer needed'])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.state()['tasks']['t1']['tools'], [])
+
     def test_amend_tools_refuses_a_running_task(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
         self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
@@ -409,6 +506,31 @@ class ToolSemanticsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'planned'):
             self.tool.amend_binding(ROOT, self.project, 'tools', 'Too late', task_id='t1',
                                     tools=['da-data:search_content'])
+
+    def test_amend_tools_repair_names_only_legal_transitions(self):
+        # running -> planned is not a transition, so the repair used to name a move
+        # that is refused on sight. It must name the stop first, then the return.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        self.channel_task('t1', ['search_content'])
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Retrieve', ['research-brief.md'],
+                                  model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        text, steps = self.refusal(lambda: self.tool.amend_binding(
+            ROOT, self.project, 'tools', 'Replace the channel', task_id='t1',
+            tools=['da-data:search_content']))
+        self.assertEqual(steps,
+                         [f'task-status --project {self.project} --task t1 --status blocked '
+                          '--executor-stopped --reason "stop the executor holding the old channels"',
+                          f'task-status --project {self.project} --task t1 --status planned '
+                          '--reason "reissue the packet"'])
+        self.assert_real_commands(steps)
+        # The repair is executable: the direct jump is illegal, the two moves are not.
+        with self.assertRaisesRegex(ValueError, 'Illegal task status transition'):
+            self.tool.update_task(ROOT, self.project, 't1', 'planned', 'Jump straight back', [])
+        self.tool.update_task(ROOT, self.project, 't1', 'blocked', 'Executor stopped', [],
+                              executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 't1', 'planned', 'Reissue the packet', [])
+        self.assertEqual(self.state()['tasks']['t1']['status'], 'planned')
 
     def test_amend_tools_names_the_confirmation_an_unclassified_channel_needs(self):
         self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
@@ -435,6 +557,35 @@ class ToolSemanticsTests(unittest.TestCase):
         self.assertEqual(registry['operations']['fetch']['classification'], 'read')
         self.assertEqual(registry['provenance'], 'core-authored')
         self.assertIsNone(registry['catalog_sha256'])
+        # The entry itself is marked, so the answer stays distinguishable from one
+        # confirmed over a catalog entry after the registry is re-read.
+        self.assertEqual(registry['operations']['fetch']['provenance'], 'core-authored')
+        event = self.state()['history'][-1]
+        self.assertEqual(event['action'], 'tool-semantics-confirmed')
+        self.assertEqual(event['provenance'], 'core-authored')
+
+    def test_confirmation_cannot_author_an_operation_the_catalog_never_listed(self):
+        # The host does export a catalog, so the operations are the ones it listed.
+        # Authoring one here would let any task declare a channel the server was
+        # never shown to export, and it would carry a `confirmed` basis that reads
+        # more trustworthy than an automatic classification.
+        self.ingest([{'name': 'search_content', 'description': 'Search indexed documents'}])
+        text, steps = self.refusal(lambda: self.tool.confirm_semantics(
+            ROOT, self.project, 'da-data', 'ghost_operation', 'read', 'A task declared it'))
+        self.assertIn('Unknown operation for server da-data: ghost_operation', text)
+        self.assertEqual(len(steps), 1)
+        for fragment in ('tools --project', str(self.project), '--server da-data', '--catalog',
+                         '--reason'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, steps[0])
+        self.assert_real_commands(steps)
+        on_disk = json.loads((self.project / 'tools' / 'da-data.json').read_text())
+        self.assertNotIn('ghost_operation', on_disk['operations'])
+        # An operation the catalog did list is still confirmable.
+        self.tool.confirm_semantics(ROOT, self.project, 'da-data', 'search_content', 'read',
+                                    'Core read the catalog entry')
+        event = self.state()['history'][-1]
+        self.assertEqual(event['provenance'], 'catalog')
 
 
 if __name__ == '__main__':

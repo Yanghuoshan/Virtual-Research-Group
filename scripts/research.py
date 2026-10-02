@@ -161,17 +161,26 @@ def registry_operation(project, server, operation):
 
 
 def operation_semantics(project, server, operation):
-    """The recorded classification of one operation; uncataloged means unknown."""
+    """The recorded classification of one operation, and where it came from.
+
+    Uncataloged means unknown. `provenance` is what the caller needs to weigh the
+    classification: `catalog` was read from the server's own declarations, while
+    `core-authored` is an answer the core recorded because the host exported no
+    catalog at all, so no server evidence stands behind it.
+    """
     path = registry_path(project, server)
     if not path.is_file():
         return {'server': server, 'operation': operation, 'classification': 'unknown',
-                'basis': 'not-cataloged'}
+                'basis': 'not-cataloged', 'provenance': 'none'}
     registry = read_json(path)
     entry = (registry.get('operations') or {}).get(operation)
     require(isinstance(entry, dict) and entry.get('classification') in SEMANTICS,
             f'Invalid registry entry: {server}/{operation}')
     return {'server': server, 'operation': operation, 'classification': entry['classification'],
-            'basis': entry.get('basis', 'auto')}
+            'basis': entry.get('basis', 'auto'),
+            # An authored entry is marked on itself; everything else inherits the
+            # provenance of the registry it was classified into.
+            'provenance': entry.get('provenance') or registry.get('provenance') or 'catalog'}
 
 
 def planning_semantics(project, services, operation):
@@ -1233,36 +1242,89 @@ def orphaned_channels(project, state):
     return orphaned
 
 
-def amend_binding(root, project, kind, reason, task_id=None, tools=None):
-    """Re-bind one gate artifact to the bytes now on disk, or one planned task's channels.
+def rebind_presteps(project, task_id, status):
+    """The state changes that make a channel rebind legal again, in order.
 
-    Correcting a known-false artifact is the right action; what made it damaging
-    was that every gate depended on the old hash silently. The change is a core
-    decision, and the assignments it invalidates are returned, never auto-repaired.
+    A running task cannot be planned in one move, and a finished one cannot be
+    reopened at all, so the repair a refusal names has to depend on the status it
+    was refused in rather than promise one transition for all of them.
     """
-    state, fingerprint = open_project(root, project)
-    refuse(kind in AMENDABLE_KINDS, 'Amendable bindings are grant, protocol, goal or tools')
-    require(nonempty(reason), 'Re-binding needs an explicit core reason')
-    if kind == 'tools':
-        # A task's channels are frozen at creation, so a registry rewrite that drops
-        # one strands every task that declared it with no way to pass check-tool.
-        # This is the repair, and it is legal only while no executor holds a packet
-        # naming the old channels.
-        require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
-        task = state['tasks'][task_id]
-        refuse(task['status'] == 'planned',
-               f'Task {task_id} is {task["status"]}; its channels may only be rebound while it is planned',
-               f'task-status --project {project} --task {task_id} --status planned --reason "reissue packet"')
-        channels = parse_tools(tools)
-        for channel in channels:
-            refuse(registry_operation(project, channel['server'], channel['operation']) is not None,
-                   f'No registry entry for {channel["server"]}:{channel["operation"]}; '
-                   'a channel must be classified before a task may declare it',
-                   f'tools --project {project} --server {channel["server"]} --operation '
-                   f'{channel["operation"]} --confirm --semantics read|write --reason "..."')
-        previous = list(task.get('tools') or [])
-        task['tools'] = channels
-    elif kind == 'grant':
+    if status == 'planned':
+        return []
+    if status == 'running':
+        return [f'task-status --project {project} --task {task_id} --status blocked '
+                '--executor-stopped --reason "stop the executor holding the old channels"',
+                f'task-status --project {project} --task {task_id} --status planned '
+                '--reason "reissue the packet"']
+    if status in ('blocked', 'submitted'):
+        return [f'task-status --project {project} --task {task_id} --status planned '
+                '--reason "reissue the packet"']
+    # A finished task's channels are history; only a new task can declare the channel.
+    return [f'task --project {project} --task <new-id> --objective <objective> --activity <activity> '
+            '--skill <skill> --role <role> --acceptance <acceptance> --tool <server:operation>']
+
+
+def channel_repair_steps(project, orphaned):
+    """One repair per stranded channel, each naming only what the core can supply.
+
+    The replacement channel is a placeholder on purpose: the dropped one is exactly
+    what this catalog no longer exports, so naming it back would be refused, and the
+    second-order repair that refusal offers would then author the operation the
+    catalog just dropped.
+    """
+    steps = []
+    for row in orphaned:
+        if row['status'] == 'planned':
+            steps.append(f'amend --project {project} --kind tools --task {row["task_id"]} '
+                         '--tool <server:operation> '
+                         f'--reason "replaces {row["server"]}:{row["operation"]}, '
+                         'which this catalog no longer exports"')
+        else:
+            # Only a planned task may rebind, so name the way back to planned instead
+            # of an amend that is certain to be refused in this status.
+            steps.extend(rebind_presteps(project, row['task_id'], row['status']))
+    return steps
+
+
+def amend_task_channels(project, state, task_id, tools, reason):
+    """Replace one planned task's channels; the event and the result it reports."""
+    # A task's channels are frozen at creation, so a registry rewrite that drops
+    # one strands every task that declared it with no way to pass check-tool.
+    # This is the repair, and it is legal only while no executor holds a packet
+    # naming the old channels.
+    require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
+    task = state['tasks'][task_id]
+    refuse(tools is not None,
+           f'Amending the channels of task {task_id} needs the replacement channels; '
+           'an omitted channel list is never read as "clear them all"',
+           f'amend --project {project} --kind tools --task {task_id} --tool <server:operation> '
+           '--reason "<why this channel replaces the dropped one>"',
+           f'amend --project {project} --kind tools --task {task_id} --no-tools '
+           '--reason "<why the task needs no external channel>"')
+    refuse(task['status'] == 'planned',
+           f'Task {task_id} is {task["status"]}; its channels may only be rebound while it is planned',
+           *rebind_presteps(project, task_id, task['status']))
+    channels = parse_tools(tools)
+    for channel in channels:
+        refuse(registry_operation(project, channel['server'], channel['operation']) is not None,
+               f'No registry entry for {channel["server"]}:{channel["operation"]}; '
+               'a channel must be classified before a task may declare it',
+               f'tools --project {project} --server {channel["server"]} --operation '
+               f'{channel["operation"]} --confirm --semantics read|write --reason "..."')
+    previous = list(task.get('tools') or [])
+    task['tools'] = channels
+    # A channel carries no hash, so this kind records the channels themselves. No
+    # execution contract moves, and a planned task holds no packet, so no live
+    # assignment is invalidated by the new channels.
+    return ({'action': 'task-tools-amended', 'task_id': task_id, 'from': previous,
+             'to': channels, 'reason': reason.strip()},
+            {'kind': 'tools', 'task_id': task_id, 'from': previous, 'to': channels,
+             'invalidated': [], 'next': []})
+
+
+def amend_gate_artifact(project, state, kind, reason):
+    """Re-bind one frozen gate artifact to the bytes now on disk."""
+    if kind == 'grant':
         grant = state.get('grant')
         refuse(isinstance(grant, dict), 'No grant to re-bind; use authorize',
                f'authorize --project {project} --mode <planning|research> --reason <reason> '
@@ -1285,23 +1347,32 @@ def amend_binding(root, project, kind, reason, task_id=None, tools=None):
                f'set-goal --project {project} --path hypotheses/goal-v1.md --reason "..."')
         record = evidence_record(project, reference['path'])
         state['goal'] = record
+    affected = invalidated_bindings(state)
+    return ({'action': f'{kind}-rebound', 'path': record['path'],
+             'from_sha256': reference.get('sha256'), 'to_sha256': record['sha256'],
+             'invalidated': affected, 'reason': reason.strip()},
+            {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
+             'to_sha256': record['sha256'], 'invalidated': affected,
+             'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
+                      '--reason "reissue the packet"' for row in affected]})
+
+
+def amend_binding(root, project, kind, reason, task_id=None, tools=None):
+    """Re-bind one gate artifact to the bytes now on disk, or one planned task's channels.
+
+    Correcting a known-false artifact is the right action; what made it damaging
+    was that every gate depended on the old hash silently. A channel carries no
+    hash, so amending one records the channel sets themselves. Either way the
+    change is a core decision, and the assignments it invalidates are returned,
+    never auto-repaired.
+    """
+    state, fingerprint = open_project(root, project)
+    refuse(kind in AMENDABLE_KINDS, 'Amendable bindings are grant, protocol, goal or tools')
+    require(nonempty(reason), 'Re-binding needs an explicit core reason')
     if kind == 'tools':
-        # A channel carries no hash, so this kind records the channels themselves. No
-        # execution contract moves, and a planned task holds no packet, so no live
-        # assignment is invalidated by the new channels.
-        event = {'action': 'task-tools-amended', 'task_id': task_id, 'from': previous,
-                 'to': channels, 'reason': reason.strip()}
-        result = {'kind': kind, 'task_id': task_id, 'from': previous, 'to': channels,
-                  'invalidated': [], 'next': []}
+        event, result = amend_task_channels(project, state, task_id, tools, reason)
     else:
-        affected = invalidated_bindings(state)
-        event = {'action': f'{kind}-rebound', 'path': record['path'],
-                 'from_sha256': reference.get('sha256'), 'to_sha256': record['sha256'],
-                 'invalidated': affected, 'reason': reason.strip()}
-        result = {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
-                  'to_sha256': record['sha256'], 'invalidated': affected,
-                  'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
-                           '--reason "reissue the packet"' for row in affected]}
+        event, result = amend_gate_artifact(project, state, kind, reason)
     state = save_decision(project, state, fingerprint, event)
     result['revision'] = state['revision']
     return result
@@ -1969,12 +2040,10 @@ def ingest_catalog(root, project, server, catalog, reason):
                                                 'orphaned_channels': orphaned,
                                                 'reason': reason.strip()})
     # The registry file describes the server, so the collateral is returned with the
-    # decision that caused it and never persisted beside the operations it stranded.
-    registry['orphaned_channels'] = orphaned
-    registry['next'] = [f'amend --project {project} --kind tools --task {row["task_id"]} '
-                        f'--tool {row["server"]}:{row["operation"]} '
-                        '--reason "<why this channel replaces the dropped one>"' for row in orphaned]
-    return registry
+    # decision that caused it and never persisted beside the operations it stranded:
+    # a derived copy keeps the written file and the returned report independent, so
+    # moving the write below this line cannot leak either into the registry.
+    return dict(registry, orphaned_channels=orphaned, next=channel_repair_steps(project, orphaned))
 
 
 def confirm_semantics(root, project, server, operation, semantics, reason):
@@ -1988,27 +2057,37 @@ def confirm_semantics(root, project, server, operation, semantics, reason):
     require(nonempty(reason), 'Confirming tool semantics needs the user-decided reason')
     require(nonempty(server) and nonempty(operation), 'Server and operation are required')
     path = registry_path(project, server)
-    # Some hosts export no MCP catalog at all, and refusing to record an answer there
-    # would strand every task that declared the channel. The core authors the entry
-    # instead, and the record says so: a classification without server evidence is a
-    # documented boundary, not an enforced one.
-    registry = (read_json(path) if path.is_file() else
-                {'server': server, 'schema_version': 1, 'catalog_sha256': None,
-                 'provenance': 'core-authored', 'operations': {}})
-    operations = registry.get('operations')
-    if not isinstance(operations, dict):
-        operations = {}
-        registry['operations'] = operations
-    entry = operations.get(operation)
-    if not isinstance(entry, dict):
+    if not path.is_file():
+        # Some hosts export no MCP catalog at all, and refusing to record an answer
+        # there would strand every task that declared the channel. The core authors
+        # the entry instead, and the record says so at both levels: a classification
+        # without server evidence is a documented boundary, not an enforced one.
+        registry = {'server': server, 'schema_version': 1, 'catalog_sha256': None,
+                    'provenance': 'core-authored', 'operations': {}}
         entry = {'operation': operation, 'description': '', 'annotations': {}, 'input_args': [],
-                 'classified_at': datetime.now(timezone.utc).isoformat(), 'signature': None}
-        operations[operation] = entry
+                 'classified_at': datetime.now(timezone.utc).isoformat(), 'signature': None,
+                 'provenance': 'core-authored'}
+        registry['operations'][operation] = entry
+        provenance = 'core-authored'
+    else:
+        # This server did export a catalog, so its operations are the ones it listed.
+        # Authoring a name it never listed would let any task declare a channel the
+        # server was never shown to export, carrying a `confirmed` basis that reads
+        # more trustworthy than an automatic classification.
+        registry = read_json(path)
+        entry = (registry.get('operations') or {}).get(operation)
+        refuse(isinstance(entry, dict),
+               f'Unknown operation for server {server}: {operation}; '
+               'a server that exports a catalog defines its own operations',
+               f'tools --project {project} --server {server} --catalog <catalog-dump.json> '
+               '--reason "<re-export the server tool catalog>"')
+        provenance = 'catalog'
     entry.update(classification=semantics, basis='confirmed',
                  confirmed_at=datetime.now(timezone.utc).isoformat(), reason=reason.strip())
     write_registry(project, server, registry)
     save_decision(project, state, fingerprint, {'action': 'tool-semantics-confirmed', 'server': server,
                                                 'operation': operation, 'semantics': semantics,
+                                                'provenance': provenance,
                                                 'reason': reason.strip()})
     return registry
 
@@ -2023,15 +2102,18 @@ def view_registry(root, project, server=None):
             if server and path.stem != server:
                 continue
             registry = read_json(path)
+            # A channel is frozen into a task at creation, so the tasks naming it are
+            # what a registry rewrite puts at risk; they are read, not stored, so the
+            # view is built as a derived copy of the entries on disk.
+            operations = {}
             for name, entry in (registry.get('operations') or {}).items():
                 if isinstance(entry, dict):
-                    # A channel is frozen into a task at creation, so the tasks naming it
-                    # are what a registry rewrite puts at risk; they are read, not stored.
-                    entry['used_by'] = sorted(task_id for task_id, task in state['tasks'].items()
-                                              if any(channel['server'] == path.stem
-                                                     and channel['operation'] == name
-                                                     for channel in task.get('tools') or []))
-            servers[path.stem] = registry
+                    used_by = sorted(task_id for task_id, task in state['tasks'].items()
+                                     if any(channel['server'] == path.stem
+                                            and channel['operation'] == name
+                                            for channel in task.get('tools') or []))
+                    operations[name] = dict(entry, used_by=used_by)
+            servers[path.stem] = dict(registry, operations=operations)
     if server:
         require(server in servers, f'No tool registry for server {server}; ingest a catalog first')
     return {'servers': servers,
@@ -2247,6 +2329,14 @@ def tools_command(args):
     return view_registry(ROOT, args.project, args.server)
 
 
+def amend_command(args):
+    # --tool stays None until it is given, so omitting it is a refusal rather than
+    # an empty channel list that quietly clears every channel the task declared;
+    # --no-tools is the explicit way to say the task needs none.
+    return amend_binding(ROOT, args.project, args.kind, args.reason, task_id=args.task,
+                         tools=[] if args.no_tools else args.tool)
+
+
 def all_skills():
     """Built-in skills plus non-shadowed extensions, for the skills listing."""
     result = discover_skills(ROOT)
@@ -2276,7 +2366,10 @@ CLI = (
     ('bindings', 'Read-only: every hash binding and whether it still holds', (('project', PROJECT),)),
     ('amend', 'Core only: rebind a gate artifact or a planned task channel',
      (('project', PROJECT), ('kind', {'required': True, 'choices': AMENDABLE_KINDS}),
-      ('task', {}), ('tool', {'action': 'append', 'default': []}), ('reason', TEXT))),
+      ('task', {}), ('tool', {'action': 'append',
+                              'help': 'Replacement channel as server:operation; repeatable'}),
+      ('no-tools', {'action': 'store_true', 'help': 'Declare that the task needs no external channel'}),
+      ('reason', TEXT))),
     ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, binding drift, '
               'project silence',
      (('project', PROJECT), ('hours', {'type': float, 'default': 2.0}),
@@ -2354,7 +2447,7 @@ RUNNERS = {
     'skills': lambda a: all_skills(),
     'bind': lambda a: bind(a.project, a.path),
     'bindings': lambda a: binding_report(ROOT, a.project),
-    'amend': lambda a: amend_binding(ROOT, a.project, a.kind, a.reason, task_id=a.task, tools=a.tool),
+    'amend': amend_command,
     'next': lambda a: next_steps_for(ROOT, a.project, task_id=a.task),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
