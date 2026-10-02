@@ -1,5 +1,6 @@
 """Gate refusals carry the command that clears them, and malformed input names the expected shape."""
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,6 +46,25 @@ class GateGuidanceTests(unittest.TestCase):
                                    evidence=['reports/user-approval-v1.md'], services=['da-data'],
                                    operations=['search_content'], scope='study', max_runs=max_runs,
                                    expires_at='2099-01-01T00:00:00Z')
+
+    def write(self, name, text='Artifact body'):
+        """One project artifact, created where a later gate will look for it."""
+        path = self.project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return name
+
+    def audit_record(self, name):
+        """A real audit record, filed wherever the caller asks for it."""
+        findings = self.write('findings.md', 'Findings the audit binds')
+        payload = {'schema_version': 2, 'reviewer': 'core', 'reviewed_at': '2026-01-01T00:00:00+00:00',
+                   'summary': 'Audit binds findings and primary evidence',
+                   'claims': [{'claim': 'The findings rest on bound primary evidence',
+                               'support': 'Primary artifact hashes'}],
+                   'subjects': [{'path': findings,
+                                 'sha256': self.tool.digest(self.project / findings)}]}
+        self.write(name, json.dumps(payload, ensure_ascii=False, indent=2))
+        return name
 
     def receipt(self, packet, session_id='host:gate'):
         return {'schema_version': 8, 'packet_id': packet['packet_id'], 'task_id': packet['task_id'],
@@ -112,7 +132,12 @@ class GateGuidanceTests(unittest.TestCase):
         return [step.rstrip('.') for step in text.split(' Next: ')[1:]]
 
     def assertRealCommands(self, steps):
-        """Every repair step names a registered command and only real flags of it."""
+        """Every repair step names a registered command and only real flags of it.
+
+        A step has to be executable exactly as written, so it must also name every
+        option the command requires. That is what separates a command from prose
+        advice: advice can begin with a command name and carry no flags at all.
+        """
         commands = {name: dict(options) for name, _, options in self.tool.CLI}
         for step in steps:
             name = step.split()[0]
@@ -122,6 +147,10 @@ class GateGuidanceTests(unittest.TestCase):
                 self.assertIn(name, commands, f'{name} is not a registered command')
                 for flag in [word for word in step.split() if word.startswith('--')]:
                     self.assertIn(flag[2:], commands[name], f'{name} has no {flag}')
+                named = {word[2:] for word in step.split() if word.startswith('--')}
+                self.assertEqual([], [option for option, kwargs in commands[name].items()
+                                      if kwargs.get('required') and option not in named],
+                                 f'{name} step omits a required option: {step}')
 
     def test_every_repair_step_names_a_real_command_and_real_flags(self):
         steps = []
@@ -146,6 +175,14 @@ class GateGuidanceTests(unittest.TestCase):
         steps += self.steps(lambda: self.check(scope='outside-the-grant', packet_id=packet['packet_id']))
         self.authorize(max_runs=5)
         steps += self.steps(lambda: self.check(scope='study', packet_id=packet['packet_id']))
+        # An audit filed outside reviews/: the repair names the path it must be filed at.
+        misplaced = self.audit_record('reviews-misplaced.json')
+        steps += self.steps(lambda: self.tool.set_audit(ROOT, self.project, kind='evidence', path=misplaced,
+                                                        status='verified', reason='Audit binds its subjects'))
+        # A running executor handing back an artifact no assigned output scope holds.
+        stray = self.write('reports/stray-finding.md')
+        steps += self.steps(lambda: self.tool.update_task(ROOT, self.project, 't1', 'submitted',
+                                                         'Artifacts returned', [stray], executor_stopped=True))
         self.assertRealCommands(steps)
 
     def test_every_board_repair_step_names_a_real_command_and_real_flags(self):

@@ -1460,10 +1460,18 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
             require(records, 'Submission requires output evidence')
         allowed = task['assignments'][-1]['allowed_outputs']
         for record in records:
+            # The executor already ran, so no scope can be granted retroactively: record
+            # the block, reopen the task, then reissue a packet whose scope holds the file.
             refuse(any(record['path'] == scope or (scope.endswith('/') and record['path'].startswith(scope))
-                       for scope in allowed), f'Unassigned run artifact: {record["path"]}',
-                   f'assign an output scope containing it at handoff time; this attempt holds '
-                   f'{", ".join(allowed)}')
+                       for scope in allowed),
+                   f'Unassigned run artifact: {record["path"]} is outside the assigned output scope, and this '
+                   f'attempt holds only {", ".join(allowed)}',
+                   f'task-status --project {project} --task {task_id} --status blocked --executor-stopped '
+                   '--reason "artifact outside the assigned scope"',
+                   f'task-status --project {project} --task {task_id} --status planned '
+                   '--reason "reissue with a wider scope"',
+                   f'handoff --project {project} --task {task_id} --summary <summary> --model <model> '
+                   f'--evidence <evidence paths> --outputs <scope containing {record["path"]}>')
         if status == 'submitted':
             task['submission'] = records
     if status == 'completed':
@@ -1727,9 +1735,12 @@ def set_audit(root, project, *, kind, path, status, reason):
     relative = resolved.relative_to(Path(project).resolve())
     require(not resolved.is_symlink() and resolved.is_file() and resolved.stat().st_size > 0,
             f'Missing or empty audit record: {path}')
-    refuse(relative.parts[0] == 'reviews', 'Audit records belong under reviews/',
-           f'write it from templates/evidence-audit.json to reviews/evidence-audit-v1.json, then '
-           f'bind --project {project} --path findings.md <primary artifacts> for its subjects')
+    refuse(relative.parts[0] == 'reviews',
+           'Audit records belong under reviews/; write it from templates/evidence-audit.json to '
+           'reviews/evidence-audit-v1.json',
+           f'bind --project {project} --path findings.md <primary artifacts>',
+           f'set-audit --project {project} --kind evidence --path reviews/evidence-audit-v1.json '
+           '--status verified --reason "..."')
     reference = {'path': str(relative), 'sha256': digest(resolved)}
     label = 'Evidence review' if kind == 'evidence' else 'Final review'
     if status in ('verified', 'passed'):
