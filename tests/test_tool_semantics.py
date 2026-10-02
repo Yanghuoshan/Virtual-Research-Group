@@ -587,6 +587,27 @@ class ToolSemanticsTests(unittest.TestCase):
         event = self.state()['history'][-1]
         self.assertEqual(event['provenance'], 'catalog')
 
+    def test_a_core_authored_registry_stays_extendable(self):
+        # A host that exports no catalog leaves the core to author every entry, so
+        # authoring the second one must not hit the catalog-backed refusal: that
+        # would be a dead end the host cannot clear.
+        self.tool.confirm_semantics(ROOT, self.project, 'host-web', 'fetch', 'read',
+                                    'Core-authored entry; the host exports no catalog')
+        registry = self.tool.confirm_semantics(ROOT, self.project, 'host-web', 'search', 'read',
+                                               'Core-authored entry; the host exports no catalog')
+        self.assertEqual(sorted(registry['operations']), ['fetch', 'search'])
+        self.assertEqual(registry['provenance'], 'core-authored')
+        self.assertIsNone(registry['catalog_sha256'])
+        for name in ('fetch', 'search'):
+            with self.subTest(operation=name):
+                self.assertEqual(registry['operations'][name]['provenance'], 'core-authored')
+        # Each authored entry is visible where the executor sees it.
+        for name in ('fetch', 'search'):
+            with self.subTest(operation=name):
+                semantics = self.tool.operation_semantics(self.project, 'host-web', name)
+                self.assertEqual(semantics['classification'], 'read')
+                self.assertEqual(semantics['provenance'], 'core-authored')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -2057,31 +2057,32 @@ def confirm_semantics(root, project, server, operation, semantics, reason):
     require(nonempty(reason), 'Confirming tool semantics needs the user-decided reason')
     require(nonempty(server) and nonempty(operation), 'Server and operation are required')
     path = registry_path(project, server)
-    if not path.is_file():
-        # Some hosts export no MCP catalog at all, and refusing to record an answer
-        # there would strand every task that declared the channel. The core authors
-        # the entry instead, and the record says so at both levels: a classification
-        # without server evidence is a documented boundary, not an enforced one.
+    registry = read_json(path) if path.is_file() else None
+    # Some hosts export no MCP catalog at all, and refusing to record an answer there
+    # would strand every task that declared the channel, so the core authors the entry
+    # and the record says so. A registry the core authored stays extendable for the
+    # same reason; one with a real catalog behind it defines its own operations, and
+    # authoring a name it never listed would let any task declare a channel the server
+    # was never shown to export, carrying a `confirmed` basis that reads more
+    # trustworthy than an automatic classification.
+    authored = registry is None or (registry.get('provenance') == 'core-authored'
+                                    and registry.get('catalog_sha256') is None)
+    entry = None if registry is None else (registry.get('operations') or {}).get(operation)
+    if registry is None:
         registry = {'server': server, 'schema_version': 1, 'catalog_sha256': None,
                     'provenance': 'core-authored', 'operations': {}}
-        entry = {'operation': operation, 'description': '', 'annotations': {}, 'input_args': [],
-                 'classified_at': datetime.now(timezone.utc).isoformat(), 'signature': None,
-                 'provenance': 'core-authored'}
-        registry['operations'][operation] = entry
-        provenance = 'core-authored'
-    else:
-        # This server did export a catalog, so its operations are the ones it listed.
-        # Authoring a name it never listed would let any task declare a channel the
-        # server was never shown to export, carrying a `confirmed` basis that reads
-        # more trustworthy than an automatic classification.
-        registry = read_json(path)
-        entry = (registry.get('operations') or {}).get(operation)
-        refuse(isinstance(entry, dict),
+    if not isinstance(entry, dict):
+        refuse(authored,
                f'Unknown operation for server {server}: {operation}; '
                'a server that exports a catalog defines its own operations',
                f'tools --project {project} --server {server} --catalog <catalog-dump.json> '
                '--reason "<re-export the server tool catalog>"')
-        provenance = 'catalog'
+        registry.setdefault('operations', {})[operation] = {
+            'operation': operation, 'description': '', 'annotations': {}, 'input_args': [],
+            'classified_at': datetime.now(timezone.utc).isoformat(), 'signature': None,
+            'provenance': 'core-authored'}
+        entry = registry['operations'][operation]
+    provenance = entry.get('provenance') or 'catalog'
     entry.update(classification=semantics, basis='confirmed',
                  confirmed_at=datetime.now(timezone.utc).isoformat(), reason=reason.strip())
     write_registry(project, server, registry)
