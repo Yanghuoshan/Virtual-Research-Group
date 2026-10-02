@@ -875,8 +875,12 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
             session_mode='fresh', session_reason=None, resume_session_id=None):
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
-    refuse(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active',
+    # A stopped project and a completed one are different states with different repairs,
+    # so they are refused separately: reactivating a project that is already active is
+    # itself refused, and that refusal would be the repair this command offered.
+    refuse(state['status'] == 'active', 'Project is stopped; reactivate it before a handoff',
            reactivate(project))
+    require(state['phase'] != 'complete', 'Completed research reopens only through a new scope decision')
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
@@ -917,8 +921,11 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
 def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_file=None):
     root, project = Path(root).resolve(), Path(project).resolve()
     state, fingerprint = project_state(root, project)
-    refuse(state['status'] == 'active' and state['phase'] != 'complete', 'Project is not active',
+    # Split for the same reason handoff splits them: a completed project is active, so
+    # offering its reactivation names a command that is refused on sight.
+    refuse(state['status'] == 'active', 'Project is stopped; reactivate it before accepting a receipt',
            reactivate(project))
+    require(state['phase'] != 'complete', 'Completed research reopens only through a new scope decision')
     require(packet.get('schema_version') == 8 and receipt.get('schema_version') == 8, 'Unknown packet or receipt schema')
     refuse(receipt.get('packet_sha256') == packet_digest(packet), 'Receipt packet hash mismatch',
            f'handoff --project {project} --task {packet.get("task_id")} --summary <summary> '
@@ -1102,26 +1109,70 @@ AUDIT_KINDS = {'evidence review': ('evidence', 'verified'), 'final review': ('fi
 TERMINAL_TASK_STATES = ('completed', 'cancelled')
 
 
-def binding_fix(project, binding, path, task_id=None, task_status=None):
-    """The one command that rebinds a broken binding, at the project that owns it.
+def rebind_presteps(project, task_id, status):
+    """The state changes that make a rebind legal again, in order.
 
+    A running task cannot be planned in one move, and a finished one cannot be
+    reopened at all, so the repair a refusal names has to depend on the status it
+    was refused in rather than promise one transition for all of them.
+    """
+    if status == 'planned':
+        return []
+    if status == 'running':
+        return [f'task-status --project {project} --task {task_id} --status blocked '
+                '--executor-stopped --reason "stop the executor holding the old channels"',
+                f'task-status --project {project} --task {task_id} --status planned '
+                '--reason "reissue the packet"']
+    if status in ('blocked', 'submitted'):
+        return [f'task-status --project {project} --task {task_id} --status planned '
+                '--reason "reissue the packet"']
+    # A finished task's bindings are history; only a new task can declare the input.
+    return [f'task --project {project} --task <new-id> --objective <objective> --activity <activity> '
+            '--skill <skill> --role <role> --acceptance <acceptance> --tool <server:operation>']
+
+
+# A versioned artifact carries its version in its own name, so the successor of a
+# bound path is derived from that name instead of guessed by the reader.
+VERSIONED_NAME = re.compile(r'^(?P<stem>.+)-v(?P<number>\d+)(?P<suffix>\.[^./]+)?\Z')
+
+
+def next_version(path):
+    """The next versioned path after `path`, so the repair names a successor.
+
+    A reflection row exists only for a path that is already recorded, and
+    record_reflection records a new version: naming the bound path back is a
+    command refused twice over.
+    """
+    match = VERSIONED_NAME.match(path)
+    if match:
+        number = int(match.group('number')) + 1
+        return f"{match.group('stem')}-v{number}{match.group('suffix') or ''}"
+    root, dot, extension = path.rpartition('.')
+    return f'{root}-v2.{extension}' if dot else f'{path}-v2'
+
+
+def binding_fix(project, binding, path, task_id=None, task_status=None):
+    """The commands that rebind a broken binding, at the project that owns it.
+
+    The first is the one to issue now: a running task cannot be replanned in one
+    move, so the sequence is the one legal in the status the row was found in.
     A completed or cancelled task is terminal: no command can repair its
     bindings, so the row admits that instead of naming a move the gate would
     refuse the moment the core issues it.
     """
     option = f'--project {project}'
     if task_id is not None and task_status in TERMINAL_TASK_STATES:
-        return None
+        return []
     if binding in AMEND_KINDS:
         kind, why = AMEND_KINDS[binding]
-        return f'amend {option} --kind {kind} --reason "{why}"'
+        return [f'amend {option} --kind {kind} --reason "{why}"']
     if binding in AUDIT_KINDS:
         kind, status = AUDIT_KINDS[binding]
-        return f'set-audit {option} --kind {kind} --path {path} --status {status} --reason "..."'
+        return [f'set-audit {option} --kind {kind} --path {path} --status {status} --reason "..."']
     if binding == 'reflection artifact':
-        return (f'reflect {option} --task {task_id} --path {path} '
-                '--reason "<record a new versioned report>"')
-    return f'task-status {option} --task {task_id} --status planned --reason "reissue the packet"'
+        return [f'reflect {option} --task {task_id} --path {next_version(path)} '
+                '--reason "<record a new versioned report>"']
+    return rebind_presteps(project, task_id, task_status)
 
 
 # Core-owned root documents, not versioned artifacts: the core rewrites findings.md
@@ -1141,6 +1192,20 @@ CORE_DRIFT_DETAIL = 'core-owned snapshot input; drift is recorded at completion'
 def core_owned(path):
     """Whether a bound path is a core-owned root document: its drift is recorded, not refused."""
     return path in CORE_MUTABLE_RECORDS
+
+
+def core_written_input(binding, path):
+    """Whether a row is the core-writes-then-completes cycle: one task's assignment
+    input naming a core-owned root document.
+
+    The core records a result into the document and then completes the task that
+    read it, which is why that drift is recorded instead of refused. No other
+    binding kind is in that cycle: a grant, protocol, goal, audit, submission or
+    reflection row that happens to name one of those paths is an ordinary binding,
+    and exempting it left it unbroken, unrepairable and silent while the gate it
+    guards still refused with no repair.
+    """
+    return binding.endswith(' assignment input') and core_owned(path)
 
 
 def binding_measurement(project, path, recorded_sha256):
@@ -1181,16 +1246,16 @@ def binding_report(root, project, state=None):
     def add(binding, reference, task_status=None, task_id=None):
         if not isinstance(reference, dict) or not nonempty(reference.get('path')):
             return
+        steps = binding_fix(project, binding, reference['path'], task_id, task_status)
         row = {'binding': binding, 'path': reference['path'], 'recorded_sha256': reference.get('sha256'),
-               'task_status': task_status,
-               'fix': binding_fix(project, binding, reference['path'], task_id, task_status)}
+               'task_status': task_status, 'fix': steps[0] if steps else None, 'fix_next': steps[1:]}
         row.update(binding_measurement(project, reference['path'], reference.get('sha256')))
-        if core_owned(reference['path']):
+        if core_written_input(binding, reference['path']):
             # The core rewrites these as a consequence of deciding, so their drift is a
             # fact to record at completion, not a fault: the row keeps the measurement it
             # really made, names no repair and is never counted as broken.
             row['detail'] = CORE_DRIFT_DETAIL
-            row['fix'] = None
+            row['fix'], row['fix_next'] = None, []
         rows.append(row)
 
     add('grant evidence', (state.get('grant') or {}).get('evidence'))
@@ -1207,7 +1272,8 @@ def binding_report(root, project, state=None):
     for reflection in state.get('reflections', []):
         add('reflection artifact', reflection.get('artifact'), task_id=reflection.get('task_id'))
     return {'bindings': rows,
-            'broken': [row for row in rows if not row['holds'] and not core_owned(row['path'])],
+            'broken': [row for row in rows
+                       if not row['holds'] and not core_written_input(row['binding'], row['path'])],
             'note': 'Read only; amend rebinds one gate artifact and records old and new hashes'}
 
 
@@ -1240,28 +1306,6 @@ def orphaned_channels(project, state):
                 orphaned.append({'task_id': task_id, 'status': task['status'],
                                  'server': channel['server'], 'operation': channel['operation']})
     return orphaned
-
-
-def rebind_presteps(project, task_id, status):
-    """The state changes that make a channel rebind legal again, in order.
-
-    A running task cannot be planned in one move, and a finished one cannot be
-    reopened at all, so the repair a refusal names has to depend on the status it
-    was refused in rather than promise one transition for all of them.
-    """
-    if status == 'planned':
-        return []
-    if status == 'running':
-        return [f'task-status --project {project} --task {task_id} --status blocked '
-                '--executor-stopped --reason "stop the executor holding the old channels"',
-                f'task-status --project {project} --task {task_id} --status planned '
-                '--reason "reissue the packet"']
-    if status in ('blocked', 'submitted'):
-        return [f'task-status --project {project} --task {task_id} --status planned '
-                '--reason "reissue the packet"']
-    # A finished task's channels are history; only a new task can declare the channel.
-    return [f'task --project {project} --task <new-id> --objective <objective> --activity <activity> '
-            '--skill <skill> --role <role> --acceptance <acceptance> --tool <server:operation>']
 
 
 def channel_repair_steps(project, orphaned):
@@ -1353,8 +1397,10 @@ def amend_gate_artifact(project, state, kind, reason):
              'invalidated': affected, 'reason': reason.strip()},
             {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
              'to_sha256': record['sha256'], 'invalidated': affected,
-             'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
-                      '--reason "reissue the packet"' for row in affected]})
+             # The invalidated rows include running tasks, so each one carries the moves
+             # that are legal in its own status: a running task stops before it reissues.
+             'next': [step for row in affected
+                      for step in rebind_presteps(project, row['task_id'], row['status'])]})
 
 
 def amend_binding(root, project, kind, reason, task_id=None, tools=None):
@@ -1421,9 +1467,10 @@ def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hou
         # of finishing the work, so it stays visible.
         if row.get('task_status') in ('completed', 'cancelled') and row.get('detail') != 'file is missing':
             continue
-        # A core-owned root document drifts because the core decided, so the drift is
-        # recorded at completion and is not the loop's business to report.
-        if core_owned(row['path']):
+        # A core-owned root document an assignment input named drifts because the core
+        # decided, so the drift is recorded at completion and is not the loop's business
+        # to report. Any other binding of that document is an ordinary broken binding.
+        if core_written_input(row['binding'], row['path']):
             continue
         # A deleted file and an edited file are repaired differently, so the row's own
         # detail names the repair: rebind the new bytes, or restore the missing file.
@@ -1550,6 +1597,11 @@ def next_steps_for(root, project, task_id=None):
             # handoff is refused for a different reason entirely.
             move(f'task-status {option} --task {name} --status submitted --executor-stopped '
                  '--reason "..." --evidence <paths>', f'{name} is running; record its returned artifacts', None)
+            # update_task allows running -> blocked, and it is the way back to planned for
+            # a task whose executor cannot finish: the board must offer it, or the only
+            # repair it names for a running task is the one the gate refuses.
+            move(f'task-status {option} --task {name} --status blocked --executor-stopped --reason "..."',
+                 f'{name} is running; stop its executor and park the work that cannot continue', None)
             block(f'handoff {option} --task {name}',
                   f'{name} is running; one task has at most one executor',
                   f'task-status {option} --task {name} --status blocked --executor-stopped --reason "..."')
@@ -1840,7 +1892,9 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
     grant = verify_grant(project, state)
     refuse(assignment['execution_contract']['grant'] == grant, 'Assignment grant changed',
            f'amend --project {project} --kind grant --reason "<why the approval artifact changed>"',
-           f'task-status --project {project} --task {task_id} --status planned --reason "reissue packet"')
+           # This gate is reachable only while the task is running, so the single move
+           # it used to name was refused for every task that could reach it.
+           *rebind_presteps(project, task_id, task['status']))
     refuse(server in grant['services'] and operation in grant['operations'] and scope == grant['scope'],
            'Tool request exceeds approved scope',
            f'authorize --project {project} --mode <planning|research> --reason <reason> '

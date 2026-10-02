@@ -385,6 +385,26 @@ class ToolSemanticsTests(unittest.TestCase):
                           '--reason "reissue the packet"'])
         self.assert_real_commands(registry['next'])
 
+    def test_amend_tools_of_a_finished_task_names_only_a_new_task(self):
+        # The terminal branch of rebind_presteps: a finished task has no state move left,
+        # so naming one would promise a step update_task refuses on sight.
+        self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
+        self.channel_task('t-done', ['fetch'])
+        self.complete('t-done')
+        self.channel_task('t-cancelled', ['fetch'])
+        self.tool.update_task(ROOT, self.project, 't-cancelled', 'cancelled', 'Objective changed', [])
+        for task_id in ('t-done', 't-cancelled'):
+            with self.subTest(task=task_id):
+                text, steps = self.refusal(lambda: self.tool.amend_binding(
+                    ROOT, self.project, 'tools', 'Replace the channel', task_id=task_id,
+                    tools=['da-data:search_content']))
+                self.assertEqual(steps,
+                                 [f'task --project {self.project} --task <new-id> --objective <objective> '
+                                  '--activity <activity> --skill <skill> --role <role> --acceptance '
+                                  '<acceptance> --tool <server:operation>'])
+                self.assertEqual([], [step for step in steps if step.startswith('task-status')], text)
+                self.assert_real_commands(steps)
+
     def test_ingest_event_records_the_channels_it_stranded(self):
         self.ingest([{'name': 'fetch', 'description': 'Fetch a document'}])
         self.channel_task('t1', ['fetch'])

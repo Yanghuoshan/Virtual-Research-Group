@@ -8,8 +8,9 @@ import unittest
 from test_framework import ROOT, load_tool
 
 # A repair step is an executable command, so every step is checked against the
-# registered CLI: no command is pending registration now.
-PENDING_COMMANDS = set()
+# registered CLI. A step naming a command that is not registered is a step the core
+# cannot run, and such a command has to be registered first: no exemption list is
+# kept here, because one would pension off the check that catches exactly that.
 
 
 class GateGuidanceTests(unittest.TestCase):
@@ -141,8 +142,6 @@ class GateGuidanceTests(unittest.TestCase):
         commands = {name: dict(options) for name, _, options in self.tool.CLI}
         for step in steps:
             name = step.split()[0]
-            if name in PENDING_COMMANDS:
-                continue
             with self.subTest(step=step):
                 self.assertIn(name, commands, f'{name} is not a registered command')
                 for flag in [word for word in step.split() if word.startswith('--')]:
@@ -211,6 +210,27 @@ class GateGuidanceTests(unittest.TestCase):
         self.assertNotEqual(steps, [], 'no board repair was collected')
         self.assertRealCommands(steps)
 
+    def test_the_grant_changed_repair_is_legal_for_the_task_it_was_refused_on(self):
+        # This gate is reachable only while the task is running, so the single planned
+        # move it used to name was refused for every task that could reach it.
+        self.authorize()
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write('reports/user-approval-v2.md', 'User-approved scope, restated')
+        self.tool.authorize(ROOT, self.project, mode='research', reason='Approval restated',
+                            evidence=['reports/user-approval-v2.md'], services=['da-data'],
+                            operations=['search_content'], scope='study', max_runs=5,
+                            expires_at='2099-01-01T00:00:00Z')
+        steps = self.steps(lambda: self.check(scope='study', packet_id=packet['packet_id']))
+        self.assertEqual(steps,
+                         [f'amend --project {self.project} --kind grant '
+                          '--reason "<why the approval artifact changed>"',
+                          f'task-status --project {self.project} --task t1 --status blocked '
+                          '--executor-stopped --reason "stop the executor holding the old channels"',
+                          f'task-status --project {self.project} --task t1 --status planned '
+                          '--reason "reissue the packet"'])
+        self.assertRealCommands(steps)
+
     def test_next_lists_the_legal_moves_for_an_active_project(self):
         board = self.tool.next_steps_for(ROOT, self.project)
         self.assertEqual(board['status'], 'active')
@@ -262,6 +282,34 @@ class GateGuidanceTests(unittest.TestCase):
         self.tool.update_task(ROOT, self.project, 't2', 'blocked', 'Executor stopped early', [],
                               executor_stopped=True)
         self.assertEqual(len(self.cancels(self.tool.next_steps_for(ROOT, self.project, task_id='t2'), 't2')), 1)
+
+    def test_next_offers_the_blocked_move_a_running_task_may_take(self):
+        # update_task allows running -> blocked and rebind_presteps names it, so a board
+        # that omitted it left a running task with no legal repair but its cancellation.
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        board = self.tool.next_steps_for(ROOT, self.project, task_id='t1')
+        self.assertNoOverlap(board)
+        moves = [entry['command'] for entry in board['legal'] if '--task t1' in entry['command']]
+        self.assertIn(f'task-status --project {self.project} --task t1 --status blocked '
+                      '--executor-stopped --reason "..."', moves, board['legal'])
+        # The move is legal for real, not only on the board.
+        state = self.tool.update_task(ROOT, self.project, 't1', 'blocked', 'Cannot continue', [],
+                                      executor_stopped=True)
+        self.assertEqual(state['tasks']['t1']['status'], 'blocked')
+
+    def test_a_completed_project_is_refused_without_offering_the_reactivation(self):
+        # A completed project is still active, so 'Project is not active' was false and
+        # the repair it offered was refused with 'Project already has status active'.
+        state = self.tool.project_state(ROOT, self.project)[0]
+        state['phase'] = 'complete'
+        (self.project / 'research-state.json').write_text(json.dumps(state))
+        for label, call in (('handoff', lambda: self.handoff()),
+                            ('accept', lambda: self.tool.accept_assignment(ROOT, self.project, {}, {}))):
+            with self.subTest(command=label), self.assertRaisesRegex(
+                    ValueError, 'Completed research reopens only through a new scope decision') as raised:
+                call()
+            self.assertNotIn('--to active', str(raised.exception))
 
     def test_next_explains_why_a_running_task_refuses_a_new_packet(self):
         packet = self.tool.handoff(ROOT, self.project, 't1', 'Work the evidence', ['research-brief.md'],

@@ -1,8 +1,11 @@
 """Hash bindings are visible and repairable instead of silent."""
 
+import contextlib
 import hashlib
+import io
 import json
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 
@@ -133,6 +136,80 @@ class BindingRepairTests(unittest.TestCase):
         self.tool.update_task(ROOT, self.project, task_id, 'submitted', 'Executor stopped', [output],
                               executor_stopped=True)
 
+    def running_task(self, task_id, output, session_id):
+        """A running task assigned one versioned input; no output has been returned yet."""
+        self.create(task_id)
+        evidence = self.write(f'hypotheses/{task_id}-input-v1.md', f'Supplied evidence for {task_id}')
+        packet = self.tool.handoff(ROOT, self.project, task_id, 'Work the evidence', [evidence],
+                                   model='current', outputs=[output])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id=session_id))
+        return evidence
+
+    def reflection_body(self, task_id):
+        """A reflection proposal citing the one artifact that task returned."""
+        artifact = f'reports/{task_id}-v1.md'
+        return {'observation': 'The measured gain is below the target',
+                'protocol_check': 'No deviation from the frozen protocol',
+                'counterevidence': 'The matched baseline remains competitive',
+                'alternatives': 'Attribute the gap to a data shift',
+                'next_options': ['Replicate on an independent split'],
+                'prediction': 'The gap disappears on an independent split',
+                'decision': 'Replicate before drawing conclusions',
+                'evidence': [{'path': artifact, 'sha256': self.tool.digest(self.project / artifact)}]}
+
+    def run_cli(self, argv):
+        """Run one command through the CLI; returns its exit code and everything it printed."""
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            code = self.tool.main(argv)
+        return code, out.getvalue() + err.getvalue()
+
+    def build_repair_fixture(self):
+        """Every binding kind, each broken, across a task left in each open state.
+
+        A frozen protocol is left out on purpose: an evidence audit has to bind it, so
+        a drifted protocol and a re-verifiable audit cannot coexist in one project.
+        """
+        goal = self.write('hypotheses/goal-v1.md', GOAL_DOSSIER)
+        self.tool.set_goal(ROOT, self.project, goal, 'Scope selected from the dossier')
+        findings = self.write('findings.md', 'Bounded finding with its matching raw result')
+        raw = self.write('experiments/H1/runs/run-001/results/metrics.json', '{"score": 0.7}')
+        audit = self.audit('reviews/evidence-audit.json', [findings, raw],
+                           'The reported gain is bound to raw evidence', 'Run artifacts under experiments/')
+        self.tool.set_audit(ROOT, self.project, kind='evidence', path=audit, status='verified',
+                            reason='Audit binds findings and raw evidence')
+        sessions = {'open-running': 'host:s-running', 'open-submitted': 'host:s-submitted',
+                    'open-blocked': 'host:s-blocked', 'open-planned': 'host:s-planned'}
+        for task_id, session_id in sessions.items():
+            self.running_task(task_id, f'reports/{task_id}-v1.md', session_id)
+        for task_id in ('open-submitted', 'open-planned'):
+            self.write(f'reports/{task_id}-v1.md', f'Bounded result from {task_id}')
+            self.tool.update_task(ROOT, self.project, task_id, 'submitted', 'Executor stopped',
+                                  [f'reports/{task_id}-v1.md'], executor_stopped=True)
+        self.write('reports/open-blocked-v1.md', 'Partial result returned before the stop')
+        self.tool.update_task(ROOT, self.project, 'open-blocked', 'blocked', 'Executor stopped early',
+                              ['reports/open-blocked-v1.md'], executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 'open-planned', 'planned', 'Rework requested', [])
+        reflection = self.write('reports/reflection-v1.json', json.dumps(self.reflection_body('open-blocked')))
+        self.tool.record_reflection(ROOT, self.project, 'open-blocked', reflection,
+                                    'Review before selecting a follow-up')
+        # The repair names a new versioned report, so making that step runnable means
+        # writing the successor the core has to author anyway.
+        self.write('reports/reflection-v2.json', json.dumps(self.reflection_body('open-blocked')))
+        # Break every binding, each in a way its own repair accepts: the audit and the
+        # reflection keep the subjects and sources their gates recheck.
+        self.write(self.approval, 'Approved bounded channel, restated')
+        self.write(goal, GOAL_DOSSIER.replace('one paired run per seed', 'two paired runs per seed'))
+        payload = json.loads((self.project / audit).read_text())
+        self.write(audit, json.dumps(dict(payload, summary='Revised: the audit binds its subjects'),
+                                     ensure_ascii=False, indent=2))
+        payload = json.loads((self.project / reflection).read_text())
+        self.write(reflection, json.dumps(dict(payload, decision='Replicate, then reconsider the baseline'),
+                                          ensure_ascii=False, indent=2))
+        for task_id in sessions:
+            self.write(f'hypotheses/{task_id}-input-v1.md', f'Supplied evidence for {task_id}, corrected')
+        for task_id in ('open-submitted', 'open-planned'):
+            self.write(f'reports/{task_id}-v1.md', f'Bounded result from {task_id}, corrected')
+
     def test_bindings_report_flags_a_broken_grant_binding(self):
         report = self.tool.binding_report(ROOT, self.project)
         self.assertEqual(report['broken'], [])
@@ -256,8 +333,10 @@ class BindingRepairTests(unittest.TestCase):
             with self.subTest(binding=binding):
                 self.assertIn(f'--project {self.project}', fix, f'{binding} names no project to repair')
         self.assertIn('--task run', commands['reflection artifact'])
+        # The bound version is already recorded and reflect records a new one, so the
+        # fix names the successor, derived from the bound path.
         self.assertEqual(commands['reflection artifact'],
-                         f'reflect --project {self.project} --task run --path reports/reflection-v1.json '
+                         f'reflect --project {self.project} --task run --path reports/reflection-v2.json '
                          '--reason "<record a new versioned report>"')
         self.assertEqual(commands['evidence review'],
                          f'set-audit --project {self.project} --kind evidence '
@@ -273,14 +352,85 @@ class BindingRepairTests(unittest.TestCase):
                          [self.write('hypotheses/sub2-input-v1.md', 'Supplied evidence for the rework')],
                          model='current', outputs=['hypotheses/sub2-v1.md'],
                          session_mode='current', session_reason='Small bounded task')
-        fix_of = {row['binding']: row['fix']
-                  for row in self.tool.binding_report(ROOT, self.project)['bindings']}
-        self.assertEqual(fix_of['sub2 assignment input'],
-                         f'task-status --project {self.project} --task sub2 --status planned '
-                         '--reason "reissue the packet"')
-        self.assertRealCommands([fix_of['sub2 assignment input']])
+        rows = {row['binding']: row for row in self.tool.binding_report(ROOT, self.project)['bindings']}
+        # sub2 is running, so the reissue alone is refused: the fix is the stop and the
+        # reissue is the step that follows it.
+        self.assertEqual(rows['sub2 assignment input']['fix'],
+                         f'task-status --project {self.project} --task sub2 --status blocked '
+                         '--executor-stopped --reason "stop the executor holding the old channels"')
+        self.assertEqual(rows['sub2 assignment input']['fix_next'],
+                         [f'task-status --project {self.project} --task sub2 --status planned '
+                          '--reason "reissue the packet"'])
+        self.assertRealCommands([rows['sub2 assignment input']['fix']] + rows['sub2 assignment input']['fix_next'])
 
-    def test_an_unreadable_bound_file_is_reported_instead_of_raising(self):
+    def test_a_drifted_input_of_a_running_task_names_the_stop_before_the_reissue(self):
+        """running -> planned is not a transition, so a running task needs both steps."""
+        self.assign_input('live', self.write('hypotheses/live-input-v1.md', 'Supplied evidence'),
+                          'reports/live-v1.md')
+        self.assertEqual(self.state()['tasks']['live']['status'], 'running',
+                         'The row must be judged while the task cannot legally be replanned')
+        self.write('hypotheses/live-input-v1.md', 'Supplied evidence, corrected')
+        row = self.row_for('hypotheses/live-input-v1.md')
+        self.assertFalse(row['holds'])
+        self.assertEqual(row['fix'],
+                         f'task-status --project {self.project} --task live --status blocked '
+                         '--executor-stopped --reason "stop the executor holding the old channels"')
+        self.assertEqual(row['fix_next'],
+                         [f'task-status --project {self.project} --task live --status planned '
+                          '--reason "reissue the packet"'])
+        self.assertRealCommands([row['fix']] + row['fix_next'])
+        # Both steps are legal in this order, and the jump they replace is not.
+        with self.assertRaisesRegex(ValueError, 'Illegal task status transition'):
+            self.tool.update_task(ROOT, self.project, 'live', 'planned', 'Jump straight back', [])
+        for status, stopped in (('blocked', True), ('planned', False)):
+            self.tool.update_task(ROOT, self.project, 'live', status, 'Executor stopped', [],
+                                  executor_stopped=stopped)
+
+    def test_a_core_owned_record_bound_as_a_grant_artifact_is_repaired(self):
+        """The core-writes-then-completes cycle is an assignment input, not any path."""
+        # A grant citing a core-owned record used to inherit the exemption, so the row
+        # was neither broken nor repairable nor visible in watch while the gate still
+        # refused with 'User grant hash mismatch' and no repair.
+        for path in self.tool.CORE_MUTABLE_RECORDS:
+            with self.subTest(path=path):
+                self.tool.authorize(ROOT, self.project, mode='research', reason='Bounded retrieval',
+                                    evidence=[path], services=['da-data'], operations=['search_content'],
+                                    scope='study', max_runs=3, expires_at='2099-01-01T00:00:00Z')
+                self.write(path, f'{path} rewritten after the grant was authorized')
+                row = self.row_for(path)
+                self.assertEqual(row['binding'], 'grant evidence')
+                self.assertFalse(row['holds'], f'{path} must be reported as broken, not exempted')
+                self.assertEqual(row['fix'], f'amend --project {self.project} --kind grant '
+                                             '--reason "<why the approval artifact changed>"')
+                broken = [row['path'] for row in self.tool.binding_report(ROOT, self.project)['broken']]
+                self.assertIn(path, broken, 'A broken grant binding must be counted as broken')
+                self.assertIn(f'grant evidence: {path} no longer matches its recorded hash',
+                              self.drift_details())
+
+    def test_every_repair_a_binding_or_amend_offers_can_be_run(self):
+        """A repair that is itself refused is no repair: run every step the CLI offers."""
+        self.build_repair_fixture()
+        # Each sequence is run from the state it was offered in, so no step can be
+        # excused by a change an earlier sequence made.
+        base = (self.project / 'research-state.json').read_bytes()
+        sequences = []
+        for row in self.tool.binding_report(ROOT, self.project)['bindings']:
+            if row['fix'] is None:
+                self.assertEqual(row['fix_next'], [], row)
+                continue
+            sequences.append((row['binding'], [row['fix']] + row['fix_next']))
+        for kind in ('grant', 'goal'):
+            result = self.tool.amend_binding(ROOT, self.project, kind, f'Corrected the {kind} artifact')
+            self.assertNotEqual(result['next'], [], f'amend {kind} invalidated nothing')
+            sequences.append((f'amend {kind}', result['next']))
+        self.assertNotEqual(sequences, [], 'No repair was collected, so the test proves nothing')
+        for label, steps in sequences:
+            (self.project / 'research-state.json').write_bytes(base)
+            for step in steps:
+                with self.subTest(repair=label, step=step):
+                    self.assertRealCommands([step])
+                    code, output = self.run_cli(shlex.split(step))
+                    self.assertEqual(code, 0, f'{label}: {step}\n{output}')
         """A watchdog degrades: a file it cannot read is reported, never raised."""
         protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
         self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
