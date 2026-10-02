@@ -386,3 +386,13 @@ class GateGuidanceTests(unittest.TestCase):
         self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Awaiting approval')
         self.assertIn('Waiting on', self.tool.status(ROOT, self.project))
         self.assertIn('Waiting on', self.tool.render_brief(self.tool.project_state(ROOT, self.project)[0]))
+
+    def test_operations_documents_every_refusal_repair(self):
+        text = (ROOT / 'references' / 'operations.md').read_text()
+        for command in ('next', 'bindings', 'amend'):
+            with self.subTest(command=command):
+                self.assertIn(f'`{command}`', text)
+        for refusal in ('Project is stopped', 'Tool access requires an active assignment',
+                        'Task input', 'Unassigned run artifact', 'hash mismatch'):
+            with self.subTest(refusal=refusal):
+                self.assertIn(refusal, text)

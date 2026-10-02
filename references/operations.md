@@ -8,7 +8,9 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 |---|---|---|
 | `validate`, `skills` | Check the bundle or discover direct and extension skills | No |
 | `status` | Print a read-only progress board | No |
+| `next` | Read-only: the commands legal right now and the repair for the rest | No |
 | `bind` | Print path/`sha256` pairs for audit subjects, manifests and reflection evidence | No |
+| `bindings` | Read-only: every hash binding and whether it still holds | No |
 | `init` | Create four planning documents in a new directory | Creates a project; never overwrites |
 | `migrate` | Explicitly upgrade an idle planning schema-5, schema-6 or schema-7 project to schema 8 | Yes, not phase |
 | `set-goal` | Select a versioned goal dossier under `hypotheses/` or `reports/` | Yes, not phase |
@@ -22,6 +24,7 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 | `set-evaluation` | Record the four evaluation fields | Yes, not phase |
 | `set-protocol` | Freeze a nonempty protocol under `experiments/` | Yes, not phase |
 | `set-audit` | Record an evidence or final review audit from `reviews/` | Yes, not phase |
+| `amend` | Rebind `grant`, `protocol`, `goal` or a planned task's channels, recording old and new | Yes, not phase |
 | `blockers` | Add, resolve, edit or list project blockers (`--list` is read-only) | Yes for add/resolve/edit, not phase |
 | `project-status` | Activate or stop the project | Yes, only this changes project status |
 | `task` | Register a stable task contract, optionally with `--resolves` | Yes, not phase |
@@ -36,6 +39,30 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 Every command marked "Yes" in the table above atomically replaces `research-state.json`, increments revision and appends decision history. `init` is the exception: it creates the project and leaves `revision` at 0 with an empty `history`, because there is no decision to record yet. They require one core writer; revision checks are not distributed locking. No command spawns a model, resumes a host session or starts an experiment. `research-log.md` remains the core's human-readable scientific narrative.
 
 History events use one uniform shape: `action`, `reason` and `revision` with a timestamp on every event, `task_id` on task-level events, and evidence path/hash pairs on events that cite material. Reading `history` newest-last shows where the project stands: `task-created` commissions work, `assignment-accepted` records an executor starting, `task-submitted` records work returned, `task-completed` records core acceptance.
+
+## Gate Refusals and the Repair
+
+The gates are stateful and order sensitive, so a legal command issued in the wrong state is refused. A gate refusal ends with `Next:` and the command that clears it; a refusal with no `Next:` is a fact this command cannot repair by itself - a malformed argument, or a bound artifact whose bytes changed - so read `next` or `bindings` instead of retrying blind. Run `next --project ... [--task <id>]` to see the legal moves without spending a round trip discovering the state.
+
+| Refusal | Cause | Repair |
+|---|---|---|
+| `Project is stopped; reactivate it before ...` | `project-status --to stopped` closed every decision | `project-status --to active` |
+| `Tool access requires an active assignment` | no accepted packet for this task | `handoff`, then `accept` |
+| `Tool request does not match the active packet` | a new packet superseded the one being used | reissue `handoff` and accept it |
+| `Assignment grant changed` | the approval artifact was corrected after acceptance | `amend --kind grant`, then replan and reissue the packet |
+| `Tool ... was not assigned to task` | channels are frozen at creation | `amend --kind tools --task <id>` while planned, else a new task |
+| `Receipt packet hash mismatch` / `Packet is stale` | state or packet changed after `handoff` | reissue the packet |
+| `Task input <path> changed since this assignment was accepted` | a versioned input changed after acceptance | replan, or cancel and create a new task |
+| `Unassigned run artifact` | the artifact is outside the assigned output scope | record `blocked`, move to `planned`, reissue with a wider scope |
+| `Audit records belong under reviews/` | audits are read from `reviews/` | write it from `templates/evidence-audit.json` |
+
+Any other `... hash mismatch` is the same fact at another gate - `User grant`, `Protocol`, `Goal dossier`, `Assignment input`, `Submitted artifact` or `Reflection` - and those refusals name no repair of their own: `bindings` names the rebind for each row.
+
+Hash bindings are global and silent: one edit can break the grant, the frozen execution contract and a task's frozen inputs at once. Run `bindings` after any edit to a bound artifact; `watch` reports `binding-drift` for the same reason. Correcting a known-false artifact is correct behaviour - `amend` rebinds it and names every assignment the change invalidated.
+
+`findings.md`, `research-log.md` and `research-brief.md` are snapshot inputs: the core rewrites them as a consequence of deciding, so their drift is recorded at completion (`input_drift`) rather than refused. Versioned artifacts stay frozen.
+
+A host that exports no MCP catalog leaves the core to author the registry entry with `tools --confirm`; that entry carries `catalog_sha256: null` and `provenance: core-authored`, so the audit trail records that the classification has no server evidence behind it.
 
 ## Planning Goal and Research Feedback
 
@@ -65,7 +92,7 @@ A task created with `--resolves b3` declares that it exists to fix that open blo
 
 Activity is mandatory: `analysis` permits bounded preparatory/exploratory work, not new experiments or verified-result claims; `experiment` requires research mode, all four evaluation fields and the matching frozen protocol; `conclusions` requires a verified evidence audit (`evidence_review.status == verified`) binding findings, the current protocol when one is frozen, and primary artifacts under `experiments/`, `data/`, `literature/` or `reports/`. These gates apply in every project phase, are opened by the gate commands below, and the core is responsible for honest classification and all additional tool/service permissions.
 
-External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective and record a separate scoped grant from actual user approval. For planning retrieval, `authorize --mode planning` may include a grant without enabling experiments; `authorize --mode planning` without grant options revokes it. After `accept`, the host must call `check-tool --project ... --task ... --packet ... --server ... --operation ... --scope ...` before every external operation and enforce refusal on mismatch. Each check returns a `preflight_token` binding the checked facts; after the call, record it with `tool-call --project ... --task ... --packet ... --server ... --operation ... --scope ... --token ...`, which re-validates the request and appends the call to the decision history so the audit trail can be reconciled later. A burst of identical requests (same task, packet, server, operation and scope) shares one preflight token; record it once with `--count N` instead of N separate calls. Each permitted channel is assigned with `--tool server:operation` at task creation and verified exactly at call time; prose objectives never authorize channels. Operation semantics come from the server's own catalog, never from the operation name alone at call time: the host exports the tool list and `tools --project ... --server ... --catalog <file>` classifies each operation as `read`, `write` or `unknown` from its annotations, description and argument names. Planning grants may only name `read`-classified operations; `write` and `unknown` require research mode and an experiment task. An `unknown` result carries `needs_confirmation`: the agent asks the user once and records the answer with `tools --confirm --server ... --operation ... --semantics read|write --reason ...`; the answer is cached against the tool signature, and a changed catalog resets it. Catalog declarations are hints, so the host still inspects parameters to rule out writes. This check cannot intercept an uncooperative host or establish the authenticity of a cited approval artifact. Preserve raw responses with source URI and retrieval date.
+External channels such as MCP servers are assigned per task. Name the permitted server and tool in the objective and record a separate scoped grant from actual user approval. For planning retrieval, `authorize --mode planning` may include a grant without enabling experiments; `authorize --mode planning` without grant options revokes it. After `accept`, the host must call `check-tool --project ... --task ... --packet ... --server ... --operation ... --scope ...` before every external operation and enforce refusal on mismatch. Each check returns a `preflight_token` binding the checked facts; after the call, record it with `tool-call --project ... --task ... --packet ... --server ... --operation ... --scope ... --token ...`, which re-validates the request and appends the call to the decision history so the audit trail can be reconciled later. A burst of identical requests (same task, packet, server, operation and scope) shares one preflight token; record it once with `--count N` instead of N separate calls. Each permitted channel is assigned with `--tool server:operation` at task creation and verified exactly at call time; prose objectives never authorize channels. Operation semantics come from the server's own catalog, never from the operation name alone at call time: the host exports the tool list and `tools --project ... --server ... --catalog <file>` classifies each operation as `read`, `write` or `unknown` from its annotations, description and argument names. Planning grants may only name `read`-classified operations; `write` and `unknown` require research mode and an experiment task. An `unknown` result carries `needs_confirmation`: the agent asks the user once and records the answer with `tools --confirm --server ... --operation ... --semantics read|write --reason ...`; the answer is cached against the tool signature, and a changed catalog resets it. A host that exports no catalog at all needs none: `tools --confirm` authors the entry itself with `catalog_sha256: null` and `provenance: core-authored`, so a classification with no server evidence behind it stays visible in `tools --server` and in `check-tool` output; a registry that does have a catalog defines its own operations and refuses a name it never exported. `tools --server` also reports `used_by`, the tasks each channel is frozen into, because a catalog re-ingest that drops an operation returns `orphaned_channels` - those channels can never pass `check-tool` again - with the `amend --kind tools` repair for a planned task and the moves that return a running one to `planned`. Catalog declarations are hints, so the host still inspects parameters to rule out writes. This check cannot intercept an uncooperative host or establish the authenticity of a cited approval artifact. Preserve raw responses with source URI and retrieval date.
 
 ## Set Gates Before Gated Work
 
