@@ -1739,8 +1739,8 @@ def set_audit(root, project, *, kind, path, status, reason):
            'Audit records belong under reviews/; write it from templates/evidence-audit.json to '
            'reviews/evidence-audit-v1.json',
            f'bind --project {project} --path findings.md <primary artifacts>',
-           f'set-audit --project {project} --kind evidence --path reviews/evidence-audit-v1.json '
-           '--status verified --reason "..."')
+           f'set-audit --project {project} --kind {kind} --path reviews/{kind}-audit-v1.json '
+           f'--status {expected[0]} --reason "..."')
     reference = {'path': str(relative), 'sha256': digest(resolved)}
     label = 'Evidence review' if kind == 'evidence' else 'Final review'
     if status in ('verified', 'passed'):
