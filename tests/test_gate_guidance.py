@@ -7,9 +7,9 @@ import unittest
 
 from test_framework import ROOT, load_tool
 
-# A repair step may name a command that is not registered yet: `amend` (grant
-# and channel revision) arrives in a later task.
-PENDING_COMMANDS = {'amend'}
+# A repair step is an executable command, so every step is checked against the
+# registered CLI: no command is pending registration now.
+PENDING_COMMANDS = set()
 
 
 class GateGuidanceTests(unittest.TestCase):

@@ -450,3 +450,26 @@ class BindingRepairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Next:') as raised:
             self.tool.update_task(ROOT, self.project, 't1', 'completed', 'Core inspected it', [])
         self.assertIn('task-status', str(raised.exception))
+
+    def test_amend_rebinds_the_grant_and_reports_invalidated_assignments(self):
+        self.write('tools/da-data.json', json.dumps({'server': 'da-data', 'schema_version': 1,
+                                                     'operations': {'search_content': {'classification': 'read',
+                                                                                       'basis': 'auto'}}}))
+        self.tool.create_task(ROOT, self.project, 't1', 'Retrieve sources', activity='analysis',
+                              skill='literature-review', role='analyst', acceptance='Bounded coverage',
+                              tools=['da-data:search_content'])
+        packet = self.tool.handoff(ROOT, self.project, 't1', 'Retrieve', ['research-brief.md'],
+                                   model='current', outputs=['literature/review-v1.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:s1'))
+        self.write(self.approval, 'Approved bounded channel; corrected arXiv title')
+        result = self.tool.amend_binding(ROOT, self.project, 'grant', 'Corrected a false title in the approval')
+        self.assertNotEqual(result['from_sha256'], result['to_sha256'])
+        self.assertEqual([row['task_id'] for row in result['invalidated']], ['t1'])
+        state = json.loads((self.project / 'research-state.json').read_text())
+        event = state['history'][-1]
+        self.assertEqual(event['action'], 'grant-rebound')
+        self.assertEqual(event['from_sha256'], result['from_sha256'])
+
+    def test_amend_refuses_to_rewrite_a_contract_field(self):
+        with self.assertRaisesRegex(ValueError, 'grant, protocol, goal'):
+            self.tool.amend_binding(ROOT, self.project, 'objective', 'Not a rebinding')

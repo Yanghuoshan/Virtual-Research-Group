@@ -1068,6 +1068,9 @@ def host_event(root, project, task_id, job_id, status, reason):
 AMEND_KINDS = {'grant evidence': ('grant', '<why the approval artifact changed>'),
                'protocol': ('protocol', '<why the protocol changed>'),
                'goal dossier': ('goal', '<why the dossier changed>')}
+# The kinds `amend` accepts: the gate artifacts a frozen execution contract carries,
+# so rebinding any of them invalidates every assignment that froze the contract.
+AMENDABLE_KINDS = tuple(kind for kind, _ in AMEND_KINDS.values())
 AUDIT_KINDS = {'evidence review': ('evidence', 'verified'), 'final review': ('final', 'passed')}
 
 
@@ -1181,6 +1184,65 @@ def binding_report(root, project, state=None):
     return {'bindings': rows,
             'broken': [row for row in rows if not row['holds'] and not core_owned(row['path'])],
             'note': 'Read only; amend rebinds one gate artifact and records old and new hashes'}
+
+
+def invalidated_bindings(state):
+    """Assignments whose frozen snapshot no longer matches the current contract.
+
+    Rebinding is legal and often correct; what costs the project is discovering
+    afterwards which work the change invalidated. This names them.
+    """
+    current = execution_contract(state)
+    affected = []
+    for task_id, task in state['tasks'].items():
+        if task['status'] in TERMINAL_TASK_STATES:
+            continue
+        for assignment in task['assignments']:
+            if assignment.get('execution_contract') != current:
+                affected.append({'task_id': task_id, 'packet_id': assignment['packet_id'],
+                                 'status': task['status']})
+    return affected
+
+
+def amend_binding(root, project, kind, reason):
+    """Re-bind one gate artifact to the bytes now on disk, recording old and new.
+
+    Correcting a known-false artifact is the right action; what made it damaging
+    was that every gate depended on the old hash silently. The change is a core
+    decision, and the assignments it invalidates are returned, never auto-repaired.
+    """
+    state, fingerprint = open_project(root, project)
+    refuse(kind in AMENDABLE_KINDS, 'Amendable bindings are grant, protocol, goal or tools')
+    require(nonempty(reason), 'Re-binding needs an explicit core reason')
+    if kind == 'grant':
+        grant = state.get('grant')
+        require(isinstance(grant, dict), 'No grant to re-bind; use authorize')
+        reference = dict(grant['evidence'])
+        record = evidence_record(project, reference['path'])
+        grant['evidence'] = record
+    elif kind == 'protocol':
+        reference = state.get('protocol') or {}
+        refuse(nonempty(reference.get('path')) and nonempty(reference.get('sha256')),
+               'No frozen protocol to re-bind; use set-protocol',
+               f'set-protocol --project {project} --path experiments/<id>/protocol.md --reason "..."')
+        record = evidence_record(project, reference['path'])
+        state['protocol'] = record
+    else:
+        reference = state.get('goal') or {}
+        refuse(isinstance(reference, dict) and nonempty(reference.get('path')),
+               'No selected goal dossier to re-bind; use set-goal',
+               f'set-goal --project {project} --path hypotheses/goal-v1.md --reason "..."')
+        record = evidence_record(project, reference['path'])
+        state['goal'] = record
+    affected = invalidated_bindings(state)
+    state = save_decision(project, state, fingerprint,
+                          {'action': f'{kind}-rebound', 'path': record['path'],
+                           'from_sha256': reference.get('sha256'), 'to_sha256': record['sha256'],
+                           'invalidated': affected, 'reason': reason.strip()})
+    return {'kind': kind, 'path': record['path'], 'from_sha256': reference.get('sha256'),
+            'to_sha256': record['sha256'], 'invalidated': affected, 'revision': state['revision'],
+            'next': [f'task-status --project {project} --task {row["task_id"]} --status planned '
+                     '--reason "reissue the packet"' for row in affected]}
 
 
 def watch(root, project, hours=2, receipt_hours=6, blocker_hours=24, silence_hours=48):
@@ -2119,6 +2181,9 @@ CLI = (
     ('bind', 'Read-only: print path/sha256 pairs for audit subjects, manifests and reflections',
      (('project', PROJECT), ('path', MANY))),
     ('bindings', 'Read-only: every hash binding and whether it still holds', (('project', PROJECT),)),
+    ('amend', 'Core only: rebind a gate artifact or a planned task channel',
+     (('project', PROJECT), ('kind', {'required': True, 'choices': AMENDABLE_KINDS}),
+      ('task', {}), ('tool', {'action': 'append', 'default': []}), ('reason', TEXT))),
     ('watch', 'Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, binding drift, '
               'project silence',
      (('project', PROJECT), ('hours', {'type': float, 'default': 2.0}),
@@ -2196,6 +2261,7 @@ RUNNERS = {
     'skills': lambda a: all_skills(),
     'bind': lambda a: bind(a.project, a.path),
     'bindings': lambda a: binding_report(ROOT, a.project),
+    'amend': lambda a: amend_binding(ROOT, a.project, a.kind, a.reason),
     'next': lambda a: next_steps_for(ROOT, a.project, task_id=a.task),
     'watch': lambda a: watch(ROOT, a.project, hours=a.hours, receipt_hours=a.receipt_hours,
                              blocker_hours=a.blocker_hours, silence_hours=a.silence_hours),
