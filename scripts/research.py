@@ -74,6 +74,40 @@ def reactivate(project):
             '--reason "<why the project resumes>"')
 
 
+def blocker_repair(project, state):
+    """The commands that clear the blocker gate: resolve the blocker, or restate it.
+
+    A freeze-all is one explicit stop for every task, so only resolving it ends the
+    freeze; an ordinary blocker may also be restated when the work that clears it
+    has changed.
+    """
+    option = f'--project {project}'
+    resolve = f'blockers {option} --resolve <blocker-id> --reason "..."'
+    if freeze_active(state):
+        return (resolve,)
+    return (resolve, f'blockers {option} --edit <blocker-id> --text "..." --reason "..."')
+
+
+def authorize_repair(project, *, mode, services, operations, scope, max_runs, expires_at='<iso>'):
+    """One authorize command restating a scope against a newly cited approval."""
+    return (f'authorize --project {project} --mode {mode} --reason <reason> --evidence <approval-path> '
+            f'--services {" ".join(services)} --operations {" ".join(operations)} --scope "{scope}" '
+            f'--max-runs {max_runs} --expires-at {expires_at}')
+
+
+def run_limit_repair(project, grant, attempts):
+    """A higher run limit under a new cited approval, or a fresh task under one.
+
+    The limit counts every experiment assignment in the project, so raising it is
+    the direct repair; a new task clears nothing by itself and is listed only as
+    the way to spend a fresh approval.
+    """
+    return (authorize_repair(project, mode='research', services=grant['services'],
+                             operations=grant['operations'], scope=grant['scope'], max_runs=attempts + 1),
+            f'task --project {project} --task <new-id> --objective "..." --activity experiment '
+            '--skill <skill> --role <role> --acceptance "..."')
+
+
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip())
 
@@ -798,7 +832,7 @@ def create_task(root, project, task_id, objective, *, activity, skill, role, acc
         require(blocker_id in open_ids,
                 f'Unknown blocker (or already resolved): {blocker_id}; open: {blocker_summary(state)}')
     message = gate_task(state, resolves, f'Task {task_id}')
-    require(message is None, message)
+    refuse(message is None, message, *blocker_repair(project, state))
     require(isinstance(task_id, str) and ID.fullmatch(task_id), 'Invalid task ID; use lowercase letters, digits and hyphens')
     require(task_id not in state['tasks'], 'Task ID already exists; never overwrite its contract')
     require(nonempty(objective) and nonempty(acceptance), 'Objective and acceptance criteria are required')
@@ -834,8 +868,13 @@ def verify_grant(project, state, *, check_expiry=True):
     require(type(grant.get('max_runs')) is int and grant['max_runs'] > 0, 'Invalid run limit')
     iso_timestamp(grant.get('expires_at'), 'Grant expiry')
     if check_expiry:
-        require(datetime.fromisoformat(grant['expires_at'].replace('Z', '+00:00')) > datetime.now(timezone.utc),
-                'User grant expired')
+        # An expired grant is not a malformed one: re-authorizing the same scope
+        # against a newly cited approval is what makes every gate behind it pass.
+        refuse(datetime.fromisoformat(grant['expires_at'].replace('Z', '+00:00')) > datetime.now(timezone.utc),
+               'User grant expired',
+               authorize_repair(project, mode='research', services=grant['services'],
+                                operations=grant['operations'], scope=grant['scope'],
+                                max_runs=grant['max_runs']))
     return grant
 
 
@@ -884,7 +923,7 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
     require(isinstance(task_id, str) and task_id in state['tasks'], 'Unknown task ID')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
-    require(message is None, message)
+    refuse(message is None, message, *blocker_repair(project, state))
     refuse(task['status'] == 'planned', 'Task must be planned before assignment',
            f'status --project {project}', f'next --project {project} --task {task_id}')
     require(nonempty(summary) and nonempty(model), 'Assignment rationale and model are required')
@@ -895,7 +934,8 @@ def handoff(root, project, task_id, summary, evidence, *, model, outputs,
     if task['activity'] == 'experiment':
         grant = verify_grant(project, state)
         attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
-        require(attempts < grant['max_runs'], 'Research run limit exhausted')
+        refuse(attempts < grant['max_runs'], 'Research run limit exhausted',
+               *run_limit_repair(project, grant, attempts))
     allowed = check_outputs(project, outputs, protected_paths(state, records))
     # Parallel execution is bounded by mutually exclusive output scopes: a running
     # task holds its assigned scopes until it leaves the running state.
@@ -940,7 +980,7 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     refuse(task['status'] == 'planned', 'Task must be planned before assignment',
            f'status --project {project}', f'next --project {project} --task {task_id}')
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
-    require(message is None, message)
+    refuse(message is None, message, *blocker_repair(project, state))
     require(packet.get('core_sha256') == digest(root / 'SKILL.md'), 'Packet core binding changed')
     require(packet.get('framework_root') == str(root) and packet.get('project_root') == str(project),
             'Packet root binding changed')
@@ -966,7 +1006,8 @@ def accept_assignment(root, project, packet, receipt, packet_file=None, receipt_
     if task['activity'] == 'experiment':
         grant = verify_grant(project, state)
         attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
-        require(attempts < grant['max_runs'], 'Research run limit exhausted')
+        refuse(attempts < grant['max_runs'], 'Research run limit exhausted',
+               *run_limit_repair(project, grant, attempts))
     require(isinstance(packet.get('evidence'), list) and packet['evidence'], 'Assignment input is required')
     for record in packet['evidence']:
         verify_reference(project, record, 'Assignment input')
@@ -1545,18 +1586,18 @@ def next_steps_for(root, project, task_id=None):
     allow(f'next {option} [--task ID]', 'Re-read the legal moves after any decision')
     blockers = blocker_summary(state)
     freeze = freeze_active(state)
+    # Every blocker halt in this board and every blocker refusal in the gates name
+    # the same repairs, so the two cannot drift apart.
+    repairs = blocker_repair(project, state)
     if freeze:
         block('task, handoff, accept, task-status --status completed',
-              f'A freeze-all blocker halts all task work ({blockers})',
-              f'blockers {option} --resolve <blocker-id> --reason "..."')
+              f'A freeze-all blocker halts all task work ({blockers})', *repairs)
     elif state['blockers']:
         allow(f'task {option} --task <id> --objective "..." --activity analysis --skill <name> '
               '--role <id> --acceptance "..." --resolves <blocker-id>',
               f'Only a task resolving an open blocker may proceed ({blockers})')
         block('task, handoff, accept for unrelated work',
-              f'Open blockers halt unrelated work ({blockers})',
-              f'blockers {option} --resolve <blocker-id> --reason "..."',
-              f'blockers {option} --edit <blocker-id> --text "..." --reason "..."')
+              f'Open blockers halt unrelated work ({blockers})', *repairs)
     else:
         allow(f'task {option} --task <id> --objective "..." --activity analysis --skill <name> '
               '--role <id> --acceptance "..."', 'Register a bounded task')
@@ -1570,7 +1611,7 @@ def next_steps_for(root, project, task_id=None):
     completion_halt = None
     if freeze_active(state):
         completion_halt = (f'Project is frozen by a freeze-all blocker ({blockers}); resolve it before completion',
-                           (f'blockers {option} --resolve <blocker-id> --reason "..."',))
+                           repairs)
     selected = state['tasks'] if task_id is None else {k: v for k, v in state['tasks'].items() if k == task_id}
     if task_id is not None and not selected:
         block(f'next {option} --task {task_id}', f'Unknown task {task_id}', f'status {option}')
@@ -1582,11 +1623,9 @@ def next_steps_for(root, project, task_id=None):
         # governs: gate_task admits it for a task resolving an open blocker only.
         if freeze:
             halt = (f'Project is frozen by a freeze-all blocker ({blockers}); resolve it before any task work',
-                    (f'blockers {option} --resolve <blocker-id> --reason "..."',))
+                    repairs)
         elif not task_may_proceed(state, task.get('resolves')):
-            halt = (f'Open blockers halt unrelated work ({blockers})',
-                    (f'blockers {option} --resolve <blocker-id> --reason "..."',
-                     f'blockers {option} --edit <blocker-id> --text "..." --reason "..."'))
+            halt = (f'Open blockers halt unrelated work ({blockers})', repairs)
         else:
             halt = None
         if task_status == 'planned':
@@ -1628,9 +1667,7 @@ def next_steps_for(root, project, task_id=None):
     elif state['blockers']:
         # A phase change is unrelated work: transition_phase refuses while any
         # blocker is open, so the board must name the repair instead of the move.
-        block(f'phase {option} --to <phase>', f'Open blockers hold the phase decision ({blockers})',
-              f'blockers {option} --resolve <blocker-id> --reason "..."',
-              f'blockers {option} --edit <blocker-id> --text "..." --reason "..."')
+        block(f'phase {option} --to <phase>', f'Open blockers hold the phase decision ({blockers})', *repairs)
     else:
         allow(f'phase {option} --to {"|".join(core_phases(root)[state["phase"]]["next"])} '
               '--reason "..." --evidence <paths>', 'A separate core phase decision')
@@ -1692,11 +1729,24 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
     task = state['tasks'][task_id]
     transitions = {'planned': ('cancelled',), 'running': ('blocked', 'submitted', 'cancelled'),
                    'blocked': ('planned', 'cancelled'), 'submitted': ('planned', 'completed', 'cancelled')}
-    require(status in transitions.get(task['status'], ()), 'Illegal task status transition')
+    # The repair names the moves this status really allows, read off the same table
+    # the gate checks, so the two can never disagree about what is legal. A running
+    # task confirms the executor stopped on every move out, so the step carries the
+    # flag that move is refused without.
+    legal = transitions.get(task['status'], ())
+    stopped = ' --executor-stopped' if task['status'] == 'running' else ''
+    refuse(status in legal, 'Illegal task status transition',
+           *([f'task-status --project {project} --task {task_id} --status {"|".join(legal)}'
+              f'{stopped} --reason "..."'] if legal else []),
+           f'next --project {project} --task {task_id}')
     if task['status'] == 'running':
-        require(executor_stopped is True, 'Confirm executor stopped and reconcile in-flight jobs first')
-        require(not any(value == 'running' for value in task.get('jobs', {}).values()),
-                'Reconcile outstanding host jobs before leaving running')
+        refuse(executor_stopped is True, 'Confirm executor stopped and reconcile in-flight jobs first',
+               f'task-status --project {project} --task {task_id} --status {status} --executor-stopped '
+               '--reason "..."')
+        outstanding = [job_id for job_id, job_status in task.get('jobs', {}).items() if job_status == 'running']
+        refuse(not outstanding, 'Reconcile outstanding host jobs before leaving running',
+               *(f'host-event --project {project} --task {task_id} --job {job_id} '
+                 '--status succeeded|failed|cancelled --reason "..."' for job_id in outstanding))
         if task_id in state['active_tasks']:
             state['active_tasks'].remove(task_id)
     require(isinstance(evidence, list), 'Evidence must be a list')
@@ -1749,8 +1799,9 @@ def update_task(root, project, task_id, status, reason, evidence, *, executor_st
         activity_evidence(project, state, task['activity'], list(assignment['evidence']), check_expiry=False)
         # Completion records finished work: foreign open blockers never freeze it,
         # but an explicit freeze-all emergency stop does.
-        require(not freeze_active(state),
-                f'Project is frozen by a freeze-all blocker ({blocker_summary(state)}); resolve it before completion')
+        refuse(not freeze_active(state),
+               f'Project is frozen by a freeze-all blocker ({blocker_summary(state)}); resolve it before completion',
+               *blocker_repair(project, state))
         # Completing the task closes the open blockers it declared; declared blockers
         # already closed elsewhere are recorded in the decision, never silently dropped.
         resolved_now = task_resolves_open(state, task.get('resolves') or [])
@@ -1811,16 +1862,32 @@ def goal_ready(project, state):
 def transition_phase(root, project, target, reason, evidence):
     state, fingerprint = project_state(root, project)
     phases = core_phases(root)
-    require(state['status'] == 'active' and not state['active_tasks'], 'Stop the running executors before changing phase')
-    require(not state['blockers'],
-            f'Resolve project blockers before changing phase ({blocker_summary(state)})')
+    # A running executor holds the phase until it hands its artifacts back, so the
+    # repair names that move for the task that holds it. A stopped project has no
+    # legal task move at all, so it names the reactivation instead of a command the
+    # project gate refuses on sight.
+    if state['status'] != 'active':
+        halt_repair = (reactivate(project),)
+    else:
+        halt_repair = tuple(f'task-status --project {project} --task {task_id} --status submitted '
+                            '--executor-stopped --reason "..." --evidence <paths>'
+                            for task_id in state['active_tasks'])
+    refuse(state['status'] == 'active' and not state['active_tasks'],
+           'Stop the running executors before changing phase', *halt_repair)
+    refuse(not state['blockers'],
+           f'Resolve project blockers before changing phase ({blocker_summary(state)})',
+           *blocker_repair(project, state))
     require(nonempty(reason) and isinstance(evidence, list) and evidence, 'Phase decision needs a rationale and evidence')
     require(target in phases[state['phase']]['next'], 'Illegal phase transition')
     records = [evidence_record(project, p) for p in evidence]
     if state['phase'] == 'scope' and target == 'ideation' and state.get('goal'):
         goal_ready(project, state)
     if target == 'complete':
-        require(all(t['status'] in ('completed', 'cancelled') for t in state['tasks'].values()), 'Resolve or cancel open tasks before completion')
+        open_tasks = [task_id for task_id, task in state['tasks'].items()
+                      if task['status'] not in TERMINAL_TASK_STATES]
+        refuse(not open_tasks, 'Resolve or cancel open tasks before completion',
+               *(f'task-status --project {project} --task {task_id} --status completed|cancelled '
+                 '--reason "..."' for task_id in open_tasks))
         records = activity_evidence(project, state, 'conclusions', records, final=True)
     previous = state['phase']
     state['phase'] = target
@@ -1861,8 +1928,10 @@ def authorize(root, project, *, mode, reason, evidence=(), services=(), operatio
                         'tools --confirm, or request research mode')
         require(nonempty(scope) and type(max_runs) is int and max_runs > 0, 'Grant scope and run limit required')
         iso_timestamp(expires_at, 'Grant expiry')
-        require(datetime.fromisoformat(expires_at.replace('Z', '+00:00')) > datetime.now(timezone.utc),
-                'User grant expired')
+        refuse(datetime.fromisoformat(expires_at.replace('Z', '+00:00')) > datetime.now(timezone.utc),
+               'User grant expired',
+               authorize_repair(project, mode=mode, services=services, operations=operations,
+                                scope=scope, max_runs=max_runs))
         state['grant'] = {'evidence': records[0], 'services': list(services), 'operations': list(operations),
                           'scope': scope.strip(), 'max_runs': max_runs, 'expires_at': expires_at}
     else:
@@ -1884,7 +1953,7 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
            f'next --project {project} --task {task_id}')
     task = state['tasks'][task_id]
     message = gate_task(state, task.get('resolves') or [], f'Task {task_id}')
-    require(message is None, message)
+    refuse(message is None, message, *blocker_repair(project, state))
     assignment = task['assignments'][-1]
     refuse(packet_id == assignment['packet_id'], 'Tool request does not match the active packet',
            f'handoff --project {project} --task {task_id} --summary <summary> --model <model> '
@@ -1916,7 +1985,8 @@ def check_tool(root, project, *, task_id, packet_id, server, operation, scope):
                 f'{server}/{operation} is {semantics["classification"]} ({semantics["basis"]}); '
                 'confirm it with tools --confirm or run it under research mode')
         attempts = sum(len(t['assignments']) for t in state['tasks'].values() if t['activity'] == 'experiment')
-        require(attempts <= grant['max_runs'], 'Research run limit exhausted')
+        refuse(attempts <= grant['max_runs'], 'Research run limit exhausted',
+               *run_limit_repair(project, grant, attempts))
     return {'allowed': True, 'task_id': task_id, 'packet_id': packet_id, 'grant': grant['evidence'],
             'operation_semantics': semantics,
             'needs_confirmation': semantics['classification'] == 'unknown',

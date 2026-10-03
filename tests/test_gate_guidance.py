@@ -341,6 +341,180 @@ class GateGuidanceTests(unittest.TestCase):
         # Cancellation is not blocked work, so an ordinary blocker leaves it legal.
         self.assertEqual(len(self.cancels(board)), 1)
 
+    def test_an_illegal_task_transition_names_the_moves_that_status_allows(self):
+        """The dominant refusal class: it must name what is legal, not only what is not."""
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        with self.assertRaisesRegex(ValueError, 'Illegal task status transition') as raised:
+            self.tool.update_task(ROOT, self.project, 't1', 'planned', 'Jump straight back', [])
+        text = str(raised.exception)
+        self.assertIn('Next:', text, f'No repair offered: {text}')
+        steps = [step.rstrip('.') for step in text.split(' Next: ')[1:]]
+        # running -> planned is refused above, and the repair names the moves that
+        # status allows, derived from the transition table the gate itself checks.
+        # Every move out of running is refused without --executor-stopped, so the
+        # step carries it: a repair that is itself refused is no repair at all.
+        self.assertEqual(steps,
+                         [f'task-status --project {self.project} --task t1 '
+                          '--status blocked|submitted|cancelled --executor-stopped --reason "..."',
+                          f'next --project {self.project} --task t1'])
+        self.assertRealCommands(steps)
+        self.tool.update_task(ROOT, self.project, 't1', 'blocked', 'Executor stopped', [], executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 't1', 'planned', 'Reissue the packet', [])
+
+    def test_a_task_gate_refusal_names_the_blockers_command_that_clears_it(self):
+        """The four task gates raise the same halt; each must name its repair."""
+        self.tool.update_blockers(ROOT, self.project, add='Human decision needed', reason='Approval missing')
+        steps = self.steps(lambda: self.handoff())
+        self.assertEqual(steps,
+                         [f'blockers --project {self.project} --resolve <blocker-id> --reason "..."',
+                          f'blockers --project {self.project} --edit <blocker-id> --text "..." --reason "..."'])
+        self.assertRealCommands(steps)
+        # A freeze-all is an explicit stop for every task, so only resolving it ends
+        # the freeze; restating its text would leave the stop in place.
+        self.tool.update_blockers(ROOT, self.project, add='Stop all work', reason='Emergency', freeze_all=True)
+        steps = self.steps(lambda: self.handoff())
+        self.assertEqual(steps,
+                         [f'blockers --project {self.project} --resolve <blocker-id> --reason "..."'])
+        self.assertRealCommands(steps)
+        # The repair is real: resolving the freeze is what lets the handoff through,
+        # once the ordinary blocker behind it is cleared too.
+        self.tool.update_blockers(ROOT, self.project, resolve='b2', reason='Stop lifted')
+        self.tool.update_blockers(ROOT, self.project, resolve='b1', reason='Approval recorded')
+        self.assertIn('packet_id', self.handoff())
+
+    def test_the_executor_and_job_gates_name_the_move_that_clears_them(self):
+        """Leaving running needs the executor confirmed stopped and no job outstanding."""
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        steps = self.steps(lambda: self.tool.update_task(ROOT, self.project, 't1', 'submitted',
+                                                        'Artifacts returned', ['hypotheses/t1-v1.md']))
+        self.assertEqual(steps, [f'task-status --project {self.project} --task t1 --status submitted '
+                                 '--executor-stopped --reason "..."'])
+        self.assertRealCommands(steps)
+        # A job the host recorded as running outlives the executor's own claim to have
+        # stopped, so the repair names the one command that reconciles it.
+        self.tool.host_event(ROOT, self.project, 't1', 'job-1', 'running', 'Sandbox run started')
+        steps = self.steps(lambda: self.tool.update_task(ROOT, self.project, 't1', 'submitted',
+                                                        'Artifacts returned', ['hypotheses/t1-v1.md'],
+                                                        executor_stopped=True))
+        self.assertEqual(steps, [f'host-event --project {self.project} --task t1 --job job-1 '
+                                 '--status succeeded|failed|cancelled --reason "..."'])
+        self.assertRealCommands(steps)
+
+    def test_the_phase_gates_name_the_command_that_clears_them(self):
+        """A phase change is held by a running executor, an open blocker and a stopped project."""
+        phase = lambda: self.tool.transition_phase(ROOT, self.project, 'ideation', 'Scope is bounded',
+                                                  ['research-brief.md'])
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        steps = self.steps(phase)
+        self.assertEqual(steps, [f'task-status --project {self.project} --task t1 --status submitted '
+                                 '--executor-stopped --reason "..." --evidence <paths>'])
+        self.assertRealCommands(steps)
+        self.tool.update_task(ROOT, self.project, 't1', 'cancelled', 'Work abandoned', [], executor_stopped=True)
+        self.tool.update_blockers(ROOT, self.project, add='Human decision needed', reason='Approval missing')
+        steps = self.steps(phase)
+        self.assertEqual(steps, [f'blockers --project {self.project} --resolve <blocker-id> --reason "..."',
+                                 f'blockers --project {self.project} --edit <blocker-id> --text "..." --reason "..."'])
+        self.assertRealCommands(steps)
+        # A stopped project has no legal task move at all, so naming task-status here
+        # would offer a command the project gate refuses on sight.
+        self.tool.update_blockers(ROOT, self.project, resolve='b1', reason='Approval recorded')
+        self.tool.set_project_status(ROOT, self.project, status='stopped', reason='Planning only')
+        steps = self.steps(phase)
+        self.assertEqual(steps, [f'project-status --project {self.project} --to active '
+                                 '--reason "<why the project resumes>"'])
+        self.assertRealCommands(steps)
+
+    def test_completing_a_phase_names_the_task_move_that_clears_it(self):
+        state = self.tool.project_state(ROOT, self.project)[0]
+        state['phase'] = 'review'
+        (self.project / 'research-state.json').write_text(json.dumps(state))
+        steps = self.steps(lambda: self.tool.transition_phase(ROOT, self.project, 'complete',
+                                                             'Audits passed', ['research-brief.md']))
+        self.assertEqual(steps, [f'task-status --project {self.project} --task t1 '
+                                 '--status completed|cancelled --reason "..."'])
+        self.assertRealCommands(steps)
+
+    def test_an_expired_grant_names_the_authorize_that_renews_it(self):
+        """The same expiry is read where the grant is issued and at every gate behind it."""
+        expired = dict(mode='research', reason='Bounded channel', evidence=['reports/user-approval-v1.md'],
+                       services=['da-data'], operations=['search_content'], scope='study', max_runs=3,
+                       expires_at='2000-01-01T00:00:00Z')
+        renewal = (f'authorize --project {self.project} --mode research --reason <reason> '
+                   '--evidence <approval-path> --services da-data --operations search_content '
+                   '--scope "study" --max-runs 3 --expires-at <iso>')
+        self.assertEqual(self.steps(lambda: self.tool.authorize(ROOT, self.project, **expired)), [renewal])
+        # A grant recorded before it lapsed is refused at the gate it guards, not only
+        # at the command that issued it.
+        state = self.tool.project_state(ROOT, self.project)[0]
+        state['grant'] = {'evidence': {'path': 'reports/user-approval-v1.md',
+                                       'sha256': self.tool.digest(self.project / 'reports/user-approval-v1.md')},
+                          'services': ['da-data'], 'operations': ['search_content'], 'scope': 'study',
+                          'max_runs': 3, 'expires_at': '2000-01-01T00:00:00Z'}
+        steps = self.steps(lambda: self.tool.verify_grant(self.project, state))
+        self.assertEqual(steps, [renewal])
+        self.assertRealCommands(steps)
+
+    def prepare_experiment(self):
+        """Research mode, a grant of one run, the evaluation fields, a protocol and its task."""
+        self.authorize(max_runs=1)
+        self.tool.set_evaluation(ROOT, self.project, reason='Bounded measures', primary_measure='macro F1',
+                                 baseline='Matched baseline', validation_plan='Grouped split',
+                                 uncertainty_plan='Five paired seeds')
+        self.protocol = self.write('experiments/h1/protocol.md', 'Frozen protocol for the first run')
+        self.tool.set_protocol(ROOT, self.project, path=self.protocol, reason='Protocol frozen')
+        self.tool.create_task(ROOT, self.project, 'run', 'Run the protocol', activity='experiment',
+                              skill='graph-evaluation', role='experimenter', acceptance='Run completes')
+
+    def test_an_exhausted_run_limit_names_the_authorize_that_raises_it(self):
+        """The limit counts every experiment assignment, so the repair raises it or starts again."""
+        self.prepare_experiment()
+        packet = self.tool.handoff(ROOT, self.project, 'run', 'Run the protocol', [self.protocol],
+                                   model='current', outputs=['experiments/h1/runs/run-001/analysis.md'])
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet, session_id='host:run'))
+        # Back to planned, because a second packet for a running task is refused for a
+        # different reason entirely.
+        self.tool.update_task(ROOT, self.project, 'run', 'blocked', 'Executor stopped', [], executor_stopped=True)
+        self.tool.update_task(ROOT, self.project, 'run', 'planned', 'Reissue the packet', [])
+        steps = self.steps(lambda: self.tool.handoff(ROOT, self.project, 'run', 'Run the protocol',
+                                                    [self.protocol], model='current',
+                                                    outputs=['experiments/h1/runs/run-002/analysis.md']))
+        self.assertEqual(steps, [f'authorize --project {self.project} --mode research --reason <reason> '
+                                 '--evidence <approval-path> --services da-data --operations search_content '
+                                 '--scope "study" --max-runs 2 --expires-at <iso>',
+                                 f'task --project {self.project} --task <new-id> --objective "..." '
+                                 '--activity experiment --skill <skill> --role <role> --acceptance "..."'])
+        self.assertRealCommands(steps)
+
+    def test_the_task_and_tool_gates_name_the_blockers_command_that_clears_them(self):
+        self.tool.update_blockers(ROOT, self.project, add='Human decision needed', reason='Approval missing')
+        steps = self.steps(lambda: self.create('t2'))
+        self.assertEqual(steps[0], f'blockers --project {self.project} --resolve <blocker-id> --reason "..."')
+        self.assertRealCommands(steps)
+        # The same halt at the tool gate, reachable only while a task is running.
+        self.tool.update_blockers(ROOT, self.project, resolve='b1', reason='Approval recorded')
+        self.authorize()
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.tool.update_blockers(ROOT, self.project, add='Approval lapsed', reason='Renewal needed')
+        steps = self.steps(lambda: self.check())
+        self.assertEqual(steps[0], f'blockers --project {self.project} --resolve <blocker-id> --reason "..."')
+        self.assertRealCommands(steps)
+
+    def test_a_freeze_all_blocker_names_the_resolve_that_ends_the_freeze(self):
+        packet = self.handoff()
+        self.tool.accept_assignment(ROOT, self.project, packet, self.receipt(packet))
+        self.write('hypotheses/t1-v1.md', 'v1 finding')
+        self.tool.update_task(ROOT, self.project, 't1', 'submitted', 'Artifacts returned',
+                             ['hypotheses/t1-v1.md'], executor_stopped=True)
+        self.tool.update_blockers(ROOT, self.project, add='Stop all work', reason='Emergency', freeze_all=True)
+        steps = self.steps(lambda: self.tool.update_task(ROOT, self.project, 't1', 'completed',
+                                                        'Artifacts accepted', []))
+        self.assertEqual(steps, [f'blockers --project {self.project} --resolve <blocker-id> --reason "..."'])
+        self.assertRealCommands(steps)
+
     def test_next_lists_exactly_the_task_status_moves_update_task_allows(self):
         """Board and gate must agree: only completion is frozen, and only by a freeze-all.
 

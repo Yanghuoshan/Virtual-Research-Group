@@ -431,6 +431,8 @@ class BindingRepairTests(unittest.TestCase):
                     self.assertRealCommands([step])
                     code, output = self.run_cli(shlex.split(step))
                     self.assertEqual(code, 0, f'{label}: {step}\n{output}')
+
+    def test_an_unreadable_bound_file_is_reported_instead_of_raising(self):
         """A watchdog degrades: a file it cannot read is reported, never raised."""
         protocol = self.write('experiments/H1/protocol.md', 'Frozen protocol for the paired runs')
         self.tool.set_protocol(ROOT, self.project, path=protocol, reason='Core froze the protocol')
