@@ -530,6 +530,34 @@ class FlatArchitectureTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assertIn(skill, text)
 
+    def test_idea_exploration_framework_covers_gap_question_route_and_contribution(self):
+        framework = (ROOT / 'references/idea-exploration.md').read_text(encoding='utf-8')
+        for fragment in ('Judgment 1', 'Judgment 2', 'Judgment 3', 'Judgment 4',
+                         'Opportunity', 'Contribution', 'pending opportunity'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, framework)
+        # The framework is guidance, not a gate: it stays reachable from the phase and
+        # selection guidance without adding a phase or a mandatory sequence.
+        for name in ('references/phase-guidance.md', 'references/capability-selection.md'):
+            with self.subTest(source=name):
+                self.assertIn('idea-exploration.md', (ROOT / name).read_text(encoding='utf-8'))
+
+    def test_ideation_guidance_separates_potential_from_cost(self):
+        entry = (ROOT / 'skills/brainstorming-research-ideas/SKILL.md').read_text(encoding='utf-8')
+        for fragment in ('contribution type', 'potential', 'cost'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, entry)
+        schema = (ROOT / 'skills/brainstorming-research-ideas/references/candidate-schema.md').read_text(
+            encoding='utf-8')
+        for fragment in ('Contribution type', 'conditional candidate', 'Real difference from nearest work',
+                         'High validation cost is not by itself a removal filter'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, schema)
+        strategist = (ROOT / 'references/role-guidance.md').read_text(encoding='utf-8')
+        for fragment in ('unique prediction', 'Do not let near-term cost alone eliminate'):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, strategist)
+
     def test_model_guidance_separates_alias_from_session_isolation(self):
         text = (ROOT / 'references/model-guidance.md').read_text(encoding='utf-8')
         self.assertIn('Independence is established by session isolation', text)

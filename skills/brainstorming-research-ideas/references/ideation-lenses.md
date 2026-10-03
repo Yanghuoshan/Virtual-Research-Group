@@ -2,6 +2,8 @@
 
 Ten lenses adapted from Orchestra Research's ideation guidance. Select two or three that fit the supplied evidence; do not run all ten by default. Every lens produces candidates, not decisions.
 
+Use the lenses to reach for a non-incremental question, then judge it on two separate axes: potential (significance, gap evidence, discriminability, unique-claim strength) and cost and risk (feasibility, confounding, absorption by a strong baseline). A lens that yields only a small measured improvement on a saturated benchmark has produced a weak candidate even if it is cheap to test; prefer candidates that could change an assumption, a capability or an evaluation practice, and keep the cost judgment separate.
+
 ## 1. Problem-First vs Solution-First
 
 | Mode | Start | Risk |
@@ -29,7 +31,7 @@ Breakthroughs often come from reconciling goals treated as trade-offs. Common te
 
 Workflow: list the top three to five desiderata → identify pairs treated as trade-offs → ask whether each trade-off is fundamental or an artifact of current methods → if an artifact, the reconciliation is the contribution; if fundamental, characterizing the frontier is itself valuable.
 
-Self-check: is the tension evidenced rather than assumed? Can each side be traced to supplied sources? Is the reconciliation technically plausible rather than aspirational? The tension lens is the one most often used without evidence; record the source for each claimed trade-off.
+Self-check: is the tension evidenced rather than assumed? Can each side be traced to supplied sources? Is the reconciliation technically plausible rather than aspirational? The tension lens is the one most often used without evidence; record the source for each claimed trade-off. If the reconciliation is only a tuning trade-off, the contribution is weak; if it rests on a new representation or objective that makes one side unnecessary, state that mechanism and its unique prediction.
 
 ## 4. Cross-Pollination (Analogy Transfer)
 
@@ -41,7 +43,9 @@ Workflow: describe the problem in domain-agnostic language → ask what other fi
 
 Revisit abandoned approaches under new conditions. Change categories to monitor: compute, scale, regulation, tooling, high-profile failures, and cultural shifts.
 
-Workflow: pick a negative result or abandoned approach three to ten years old → list the assumptions behind its rejection → test whether each still holds → if one is invalidated, re-derive the idea and frame it as "X was impractical because Y, but Z changed". Verify the change with supplied evidence; a claimed change without evidence is a hypothesis, not a premise.
+Workflow: pick a negative result or abandoned approach three to ten years old → list the assumptions behind its rejection → test whether each still holds → if one is invalidated, re-derive the idea and frame it as "X was impractical because Y, but Z changed". Verify the change with supplied evidence; a claimed change without evidence is a hypothesis, not a premise. Also separate a genuine change from a prior result that was merely under-tuned or evaluated on an obsolete setting; the latter is a re-test, not a new contribution.
+
+Self-check: state which specific assumption the change invalidates and what the revived approach should now predict that the original could not. A revival with no new prediction is a re-run, not a breakthrough.
 
 ## 6. Failure Analysis and Boundary Probing
 
@@ -80,7 +84,7 @@ Workflow: list five to ten components in the area → compose pairs and decompos
 > Sentence 1 (problem): "[Domain] currently struggles with [specific problem], which matters because [concrete consequence]."
 > Sentence 2 (insight): "We [approach] by [key mechanism], which works because [reason]."
 
-If the template cannot be filled, the problem is not well defined (return to lens 1), the insight is unclear (lens 7), or significance is unestablished (lens 3). Calibration: would a colleague outside the subfield understand why it matters? Does it stand without jargon? What would a skeptic's first objection be?
+If the template cannot be filled, the problem is not well defined (return to lens 1), the insight is unclear (lens 7), or significance is unestablished (lens 3). Calibration: would a colleague outside the subfield understand why it matters? Does it stand without jargon? What would a skeptic's first objection be? State whether the claim is a new capability, a corrected explanation, or only a measured improvement, and what the nearest work would have to be false for the claim to stand.
 
 ## Lens Selection Guide
 

@@ -38,6 +38,16 @@ Example scope tasks: clarify the question, check existing answers, assess data a
 
 These are optional examples, not a fixed checklist. Each task has a distinct artifact and acceptance criterion; ordinary file reads or clarification turns are steps within a task, not separate tasks.
 
+## Using the Exploration Framework
+
+[IDEA exploration and formulation](idea-exploration.md) describes four judgments — opportunity, question, route and contribution — for the question-shaping loop. They are reusable views, not extra phases or a mandatory sequence, and the core decides which one a task needs:
+
+- **scope** uses opportunity and nearest-neighbor analysis to separate a documented gap from a search miss. A pending opportunity may stay labeled as unverified while the question is still being bounded; reaching `ideation` does not require pretending the unknowns are resolved.
+- **ideation** uses the question and route judgments to develop competing mechanisms, judge potential and cost on separate axes, and keep a high-potential but expensive route as a conditional candidate with an explicit next discriminating step. Contribution framing may begin here so that weak claims are caught before design.
+- **design** uses the contribution judgment to map each load-bearing claim to controls, a proof obligation or a counterexample strategy, so the planned evidence actually supports the claim rather than a nearby one.
+
+Returning is expected, not a failure: a contradicted assumption sends work back to scope, a candidate that cannot be discriminated sends it back to ideation, and a claim whose evidence does not exist yet returns to design or ideation. The recorded phase still changes only through a separate core decision.
+
 ## Cross-Phase Tasks
 
 A citation check during writing or a split audit during execution is another task, not a project-wide phase change. Tasks may remain planned or blocked across a justified phase change; their creation phase is provenance, not a routing restriction.

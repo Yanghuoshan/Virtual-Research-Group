@@ -22,8 +22,8 @@ The current formulation, fixed scientific or physical constraints, suspected con
    - **Inversion:** negate a conventional assumption and seek a coherent countermodel.
    - **Abstraction:** specialize a broad claim to an informative boundary case, or generalize only after enumerating required conditions.
    - **Contradiction:** express a trade-off as a joint objective and identify whether a new abstraction could satisfy both sides.
-4. For each proposal, specify source relation, target relation, preserved invariants, broken assumptions, and a discriminating prediction, validated with [analogy validation](references/analogy-validation.md). Label unsupported analogies as speculative.
-5. Compare the formulations without committing the project to a new direction. Return both plausible and rejected reformulations with reasons.
+4. For each proposal, specify source relation, target relation, preserved invariants, broken assumptions, and a discriminating prediction, validated with [analogy validation](references/analogy-validation.md). Also state which load-bearing assumption the reformulation changes, what new capability or explanation that enables, and what the proposal predicts that the original framing cannot. Label unsupported analogies as speculative.
+5. Compare the formulations without committing the project to a new direction. Rank them by the strength of the new capability or explanation and the sharpness of the unique prediction, while noting the cost of validating each; keep a costly but high-potential reformulation as a conditional option rather than discarding it. Return both plausible and rejected reformulations with reasons.
 
 ## Outputs
 
@@ -31,7 +31,7 @@ A reformulation memo at a new assigned path, containing the original formulation
 
 ## Checks
 
-A valid analogy must predict something not already encoded in the original wording. Renaming components is not a new method. A relaxed constraint must be scientifically meaningful, not an unauthorized change to the task.
+A valid analogy must predict something not already encoded in the original wording. Renaming components is not a new method. A relaxed constraint must be scientifically meaningful, not an unauthorized change to the task. A reformulation that changes no load-bearing assumption, or whose prediction follows equally from the original representation, is a restatement rather than a contribution.
 
 Example: reformulate local message passing as repeated graph-operator application, then ask whether spectral attenuation explains observed oversmoothing. State the linearity assumptions before transferring the analogy to nonlinear models.
 
