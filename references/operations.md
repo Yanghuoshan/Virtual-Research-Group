@@ -19,7 +19,7 @@ Python 3.10+ and standard library only. Run from `research-framework/`. The [cor
 | `tools` | Ingest a host-exported tool catalog, confirm an ambiguous operation, or view the registry | Writes `tools/<server>.json`, records decisions |
 | `tool-call` | Record one external call, or a burst of identical calls with `--count`, against its preflight token | Yes, not phase |
 | `host-event` | Record the observed status of an external job for a running task | Yes, not phase |
-| `watch` | Read-only report of silent active tasks and recorded outstanding jobs | No |
+| `watch` | Read-only loop supervision: silent tasks, receipt stalls, aged blockers, brief drift, binding drift and project silence | No |
 | `reflect`, `review-reflection` | Record raw-evidence-backed reflection and follow-up check | Yes, not phase |
 | `set-evaluation` | Record the four evaluation fields | Yes, not phase |
 | `set-protocol` | Freeze a nonempty protocol under `experiments/` | Yes, not phase |
@@ -42,7 +42,7 @@ History events use one uniform shape: `action`, `reason` and `revision` with a t
 
 ## Gate Refusals and the Repair
 
-The gates are stateful and order sensitive, so a legal command issued in the wrong state is refused. A gate refusal ends with `Next:` and the command that clears it; a refusal with no `Next:` is a fact this command cannot repair by itself - a malformed argument, or a bound artifact whose bytes changed - so read `next` or `bindings` instead of retrying blind. Run `next --project ... [--task <id>]` to see the legal moves without spending a round trip discovering the state.
+The gates are stateful and order sensitive, so a legal command issued in the wrong state is refused. `Next:` names the command that clears the gate when one exists; when it does not, `next` is the map of legal moves and `bindings` shows which binding broke, so read one of those instead of retrying blind. Run `next --project ... [--task <id>]` to see the legal moves without spending a round trip discovering the state.
 
 | Refusal | Cause | Repair |
 |---|---|---|
@@ -56,7 +56,7 @@ The gates are stateful and order sensitive, so a legal command issued in the wro
 | `Unassigned run artifact` | the artifact is outside the assigned output scope | record `blocked`, move to `planned`, reissue with a wider scope |
 | `Audit records belong under reviews/` | audits are read from `reviews/` | write it from `templates/evidence-audit.json` |
 
-Any other `... hash mismatch` is the same fact at another gate - `User grant`, `Protocol`, `Goal dossier`, `Assignment input`, `Submitted artifact` or `Reflection` - and those refusals name no repair of their own: `bindings` names the rebind for each row.
+Any other `... hash mismatch` is the same fact at another gate - `User grant`, `Protocol`, `Goal dossier`, `Assignment input`, `Submitted artifact`, `Reflection source`, `Reflection`, `Follow-up result` or an audit `... subject` - and those refusals name no repair of their own: `bindings` names the rebind for each row. A malformed argument is refused the same way: it names the expected shape and no command, so `next` is what tells you what is legal.
 
 Hash bindings are global and silent: one edit can break the grant, the frozen execution contract and a task's frozen inputs at once. Run `bindings` after any edit to a bound artifact; `watch` reports `binding-drift` for the same reason. Correcting a known-false artifact is correct behaviour - `amend` rebinds it and names every assignment the change invalidated.
 

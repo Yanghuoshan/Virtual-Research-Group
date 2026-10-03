@@ -88,7 +88,7 @@ packages, or change agent configuration. If a step fails, stop and report the
 error instead of improvising.
 ```
 
-The closing instruction is the point: installation is read-only with respect to research.
+The closing instruction is the point: installation is read-only with respect to research. Replace `Yanghuoshan` if you publish under another account.
 
 ## Quick start
 
@@ -173,7 +173,7 @@ Add `skills/<name>/SKILL.md` with single-line `name` and `description` frontmatt
 ## Non-goals and limitations
 
 - **No model dispatch, scheduler or sandbox.** Automatic execution, automatic state transitions, an enforced tool-call gateway and a permissions sandbox are not implemented; `check-tool` and `watch` are read-only interfaces.
-- **Core-authored registries are visible, not enforced.** No host catalog: `tools --confirm` writes `provenance: core-authored` and `catalog_sha256: null`; `tools --server` and `check-tool` show it.
+- **Core-authored registries are visible, not enforced.** `provenance: core-authored` shows in `tools --server` and `check-tool` output.
 - **The loop needs a cooperating host.** The helpers record decisions; they do not run them.
 - **Validation cannot prove scientific truth.** Hash checks cannot detect omitted dependencies.
 - **One state writer.** Atomic writes are not distributed locking.
